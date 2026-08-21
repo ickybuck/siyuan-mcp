@@ -30,12 +30,36 @@ The code in this project is primarily developed with AI assistance. While functi
 
 **请谨慎使用，并对自己的选择负责。**
 
+## 🍴 About This Fork
+
+This is a fork of [porkll/siyuan-mcp](https://github.com/porkll/siyuan-mcp) that expands the tool
+surface from 16 to 49 tools. Upstream exposed only document-granular operations, which meant editing
+one paragraph of a large note required rewriting the whole document. This fork adds **block-level
+editing** and a complete **database (attribute view)** layer.
+
+The practical difference: a 148-byte `update_block` call can edit a single paragraph inside a
+10,000-word document, instead of sending the entire document back.
+
+**What this fork adds:**
+
+| Area | Upstream | This fork |
+| --- | --- | --- |
+| Block operations | 0 tools | 11 tools |
+| Databases (attribute views) | 0 tools | 18 tools |
+| Filetree | partial | +4 tools |
+| **Total** | **16** | **49** |
+
+All added endpoints were verified against a live SiYuan 3.8.1 kernel, including negative cases.
+See [Notes & Gotchas](#-notes--gotchas) for behaviours that are easy to get wrong.
+
 ## ✨ Features
 
 - 🚀 Full MCP (Model Context Protocol) implementation
-- 📝 15 essential tools for comprehensive SiYuan Note operations
+- 📝 49 tools covering documents, blocks, databases, notebooks, tags, and snapshots
+- 🧱 **Block-level editing** — edit, insert, move, fold, and delete individual blocks
+- 🗃️ **Database support** — create databases, add fields and rows, set cell values, filter, sort, group, switch layouts
 - 🔍 Unified search (content, filename, tag, and combinations)
-- 📁 Document management (create, read, update, move, tree)
+- 📁 Document management (create, read, update, rename, remove, move, sort, tree)
 - 📅 Daily note support with auto-creation
 - 📚 Notebook operations
 - 📸 Snapshot management (backup & restore)
@@ -149,7 +173,7 @@ After configuration, restart your MCP client (Cursor/Claude Desktop) and try:
 
 ## 🛠️ Available MCP Tools
 
-Once configured, you can interact with SiYuan through natural language. The server provides 15 essential tools:
+Once configured, you can interact with SiYuan through natural language. The server provides 49 tools:
 
 ### 🔍 Search
 - **unified_search** - Unified search tool: search by content, filename, tag, or any combination
@@ -159,8 +183,53 @@ Once configured, you can interact with SiYuan through natural language. The serv
 - **create_document** - Create a new document
 - **append_to_document** - Append content to an existing document
 - **update_document** - Update (overwrite) document content
+- **remove_document** - Permanently delete a document and its children
+- **rename_document** - Rename a document by ID
 - **move_documents** - Move one or more documents to a new location
 - **get_document_tree** - Get document tree structure with specified depth
+- **set_document_sort_mode** - Set how a document's children are sorted (modes 0–14)
+- **set_sort** - Set manual sort order for notebooks and documents
+
+### 🧱 Block Operations
+
+Block-level editing is the main reason this fork exists. Use **get_child_blocks** to discover the
+block IDs that the other tools need.
+
+- **get_child_blocks** - List the direct child blocks of a block or document
+- **get_block_kramdown** - Get a block's raw Kramdown source, including IAL attributes
+- **update_block** - Replace a single block's content in place
+- **append_block** - Append a new block as the last child of a parent
+- **prepend_block** - Insert a new block as the first child of a parent
+- **insert_block_before** - Insert a new block directly before a reference block
+- **insert_block_after** - Insert a new block directly after a reference block
+- **move_block** - Move a block to a new position or parent
+- **delete_block** - Delete a single block
+- **fold_block** / **unfold_block** - Collapse or expand a block in the outliner
+
+### 🗃️ Database (Attribute View) Operations
+
+SiYuan databases are called *attribute views*. A database can exist **detached** (not shown in any
+document) or **embedded** in a document as a block. Several view operations only work on embedded
+databases — see [Notes & Gotchas](#-notes--gotchas).
+
+- **create_database** - Create a new (detached) database
+- **embed_database** - Embed a database into a document, returning the block ID
+- **render_database** - Read computed rows/cards for a view, paginated (the main read tool)
+- **get_database** - Get the raw definition: fields, ordering, view layouts
+- **get_database_primary_key_values** - List primary-key row values, filtered and paginated
+- **search_databases** - Search databases by name
+- **add_database_rows** - Add rows, either bound to blocks or detached
+- **remove_database_rows** - Remove rows by row ID
+- **set_database_cell** - Set one cell's value
+- **add_database_field** - Add a field/column (16 field types)
+- **remove_database_field** - Remove a field and all its values
+- **sort_database_field** - Reorder a field globally, across all views
+- **sort_database_view_field** - Reorder a field within a single view
+- **get_database_filter_sort** - Read the current filter and sort rules
+- **set_database_filters** - Replace a view's filters
+- **set_database_sorts** - Replace a view's sorts
+- **set_database_group** - Set or clear kanban grouping
+- **change_database_layout** - Switch between table, gallery, and kanban
 
 ### 📅 Daily Note
 - **append_to_daily_note** - Append to today's daily note (auto-creates if needed)
@@ -195,6 +264,47 @@ Ask your AI assistant naturally:
 "Move document X to the root of my Work notebook"
 "Move documents X and Y under document Z"
 ```
+
+## ⚠️ Notes & Gotchas
+
+Behaviours found by testing against a live kernel. Most of these fail silently or in a misleading
+way, so they are worth knowing before you rely on a result.
+
+**View operations silently no-op on a detached database.** `set_database_filters`,
+`set_database_sorts`, `set_database_group`, and `change_database_layout` return **HTTP 200 with an
+empty body** and change nothing unless the database is embedded in a document and a valid
+`block_id` is passed. These wrappers therefore require `block_id` and fail fast rather than
+reporting a success that did nothing. Embed a database with `embed_database` first.
+
+**Row IDs are not block IDs.** `set_database_cell` takes an `item_id`, which is the rendered row's
+`id` from `render_database` (`rows[].id`, or `cards[].id` for gallery/kanban). For a row bound to an
+existing block, the bound block's ID is a *different* value. Passing the wrong one stores an orphan
+value that never appears in the rendered cell, with no error.
+
+**Grouping and filters can hide rows.** A view with active grouping or filters can return an empty
+`rows[]` while `rowCount` is greater than zero. Grouping also persists across a layout switch. If
+rows unexpectedly vanish, clear the group before concluding the data is gone.
+
+**Sort modes are 0–14, not 0–15.** `set_document_sort_mode` rejects 15 and 256, and rejects
+notebook root document IDs. For notebook-level sorting, use the notebook configuration instead.
+
+**Empty filters normalise, they don't clear to `[]`.** Clearing filters leaves a single empty root
+group node (`{combination: "and"}`) rather than an empty array. This is expected.
+
+**Node IDs must match `^[0-9]{14}-[a-z0-9]{7}$` exactly.** A shorter or differently shaped random
+suffix yields `invalid id` or `invalid attribute view id`. Tools that create IDs generate conforming
+ones automatically.
+
+**The SQL index lags writes by roughly 1–2 seconds.** `get_document_tree` and anything else backed by
+`/api/query/sql` may not see a document that was just created. Allow a short delay before reading
+back.
+
+**Document hierarchy is not in `parent_id`.** A child document's `blocks.parent_id` is empty — it is
+the root of its own block tree. The real hierarchy is encoded in `path`
+(`/parentID/childID.sy`). `get_document_tree` reconstructs the tree from paths for this reason.
+
+**New select options are created implicitly.** Setting a `select`/`mSelect` cell to an option that
+does not exist yet registers it on the field automatically.
 
 ## 📖 Tool Parameters Reference
 
