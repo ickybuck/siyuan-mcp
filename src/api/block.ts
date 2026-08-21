@@ -158,4 +158,73 @@ export class SiyuanBlockApi {
       throw new Error(`Failed to move block: ${response.msg}`);
     }
   }
+
+  /**
+   * 获取块的直接子块列表
+   * @param blockId 父块 ID
+   * @returns 子块列表（id、type、subType）
+   */
+  async getChildBlocks(
+    blockId: string
+  ): Promise<Array<{ id: string; type: string; subType?: string }>> {
+    const response = await this.client.request<
+      Array<{ id: string; type: string; subType?: string }>
+    >('/api/block/getChildBlocks', { id: blockId });
+
+    if (response.code !== 0) {
+      throw new Error(`Failed to get child blocks: ${response.msg}`);
+    }
+
+    return response.data;
+  }
+
+  /**
+   * 在父块下前置子块（插入为第一个子块）
+   * @param parentId 父块 ID
+   * @param content Markdown 内容
+   * @returns 新创建的块 ID
+   */
+  async prependBlock(parentId: string, content: string): Promise<string> {
+    interface BlockOperation {
+      doOperations: Array<{ id: string; action: string }>;
+    }
+    const response = await this.client.request<BlockOperation[]>(
+      '/api/block/prependBlock',
+      {
+        parentID: parentId,
+        dataType: 'markdown',
+        data: content,
+      }
+    );
+
+    if (response.code !== 0) {
+      throw new Error(`Failed to prepend block: ${response.msg}`);
+    }
+
+    return response.data[0].doOperations[0].id;
+  }
+
+  /**
+   * 折叠块
+   * @param blockId 块 ID
+   */
+  async foldBlock(blockId: string): Promise<void> {
+    const response = await this.client.request('/api/block/foldBlock', { id: blockId });
+
+    if (response.code !== 0) {
+      throw new Error(`Failed to fold block: ${response.msg}`);
+    }
+  }
+
+  /**
+   * 展开块
+   * @param blockId 块 ID
+   */
+  async unfoldBlock(blockId: string): Promise<void> {
+    const response = await this.client.request('/api/block/unfoldBlock', { id: blockId });
+
+    if (response.code !== 0) {
+      throw new Error(`Failed to unfold block: ${response.msg}`);
+    }
+  }
 }

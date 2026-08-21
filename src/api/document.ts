@@ -3,7 +3,7 @@
  */
 
 import type { SiyuanClient } from './client.js';
-import type { DocTreeNode, DocTreeNodeResponse } from '../types/index.js';
+import type { DocTreeNodeResponse } from '../types/index.js';
 import { extractTitle } from '../utils/format.js';
 
 export class SiyuanDocumentApi {
@@ -65,27 +65,62 @@ export class SiyuanDocumentApi {
   }
 
   /**
-   * 移动文档
-   * @param fromNotebookId 源笔记本 ID
-   * @param fromPath 源路径
-   * @param toNotebookId 目标笔记本 ID
-   * @param toPath 目标路径
+   * 根据ID删除文档
+   * @param id 文档 ID
    */
-  async moveDocument(
-    fromNotebookId: string,
-    fromPath: string,
-    toNotebookId: string,
-    toPath: string
+  async removeDocumentById(id: string): Promise<void> {
+    const response = await this.client.request('/api/filetree/removeDocByID', { id });
+
+    if (response.code !== 0) {
+      throw new Error(`Failed to remove document: ${response.msg}`);
+    }
+  }
+
+  /**
+   * 根据ID重命名文档
+   * @param id 文档 ID
+   * @param title 新标题
+   */
+  async renameDocumentById(id: string, title: string): Promise<void> {
+    const response = await this.client.request('/api/filetree/renameDocByID', { id, title });
+
+    if (response.code !== 0) {
+      throw new Error(`Failed to rename document: ${response.msg}`);
+    }
+  }
+
+  /**
+   * 设置文档树/笔记本手动排序
+   * @param notebookSorts 笔记本排序项
+   * @param docSorts 文档排序项
+   */
+  async setSort(
+    notebookSorts: Array<{ id: string; sort: number }>,
+    docSorts: Array<{ id: string; sort: number }>
   ): Promise<void> {
-    const response = await this.client.request('/api/filetree/moveDoc', {
-      fromNotebook: fromNotebookId,
-      fromPath: fromPath,
-      toNotebook: toNotebookId,
-      toPath: toPath,
+    const response = await this.client.request('/api/filetree/setSort', {
+      notebookSorts,
+      docSorts,
     });
 
     if (response.code !== 0) {
-      throw new Error(`Failed to move document: ${response.msg}`);
+      throw new Error(`Failed to set sort: ${response.msg}`);
+    }
+  }
+
+  /**
+   * 设置文档子文档的排序方式（笔记本根文档 ID 不被接受；笔记本级排序请使用 notebook.setNotebookConf 的 conf.sort）
+   * @param id 常规文档 ID
+   * @param sortMode 排序方式（0-14），传 null 取消显式设置，跟随最近的父文档/笔记本/全局默认排序规则
+   */
+  async setDocSortMode(id: string, sortMode: number | null): Promise<void> {
+    const response = await this.client.request('/api/filetree/setDocSortMode', {
+      id,
+      sortMode,
+    });
+
+    if (response.code !== 0) {
+      throw new Error(`Failed to set doc sort mode: ${response.msg}`);
     }
   }
 
@@ -158,21 +193,6 @@ export class SiyuanDocumentApi {
   }
 
   /**
-   * 获取文档树
-   * @param notebookId 笔记本 ID
-   * @param path 起始路径（可选）
-   * @returns 文档树
-   */
-  async getDocTree(notebookId: string, path?: string): Promise<DocTreeNode[]> {
-    const response = await this.client.request<DocTreeNode[]>('/api/filetree/listDocTree', {
-      notebook: notebookId,
-      path: path,
-    });
-
-    return response.data || [];
-  }
-
-  /**
    * 获取人类可读的文档路径
    * @param blockId 块 ID
    * @returns 人类可读路径
@@ -190,121 +210,70 @@ export class SiyuanDocumentApi {
 
   /**
    * 获取文档树结构（带深度限制）
+   *
+   * 注意：文档间的父子关系并不体现在 blocks.parent_id 上（子文档是自己块树的根，
+   * 其 parent_id 为空）——真正的层级关系编码在 path 中（如 "/父文档ID/子文档ID.sy"）。
+   * 因此这里通过 path 前缀匹配重建树，而不是用 parent_id 做递归 SQL。
+   *
    * @param id 文档ID或笔记本ID
    * @param maxDepth 最大深度（1表示只返回直接子节点，默认为1）
    * @returns 文档树响应节点数组
    */
   async getDocumentTree(id: string, maxDepth: number = 1): Promise<DocTreeNodeResponse[]> {
-    // 使用SQL查询获取文档树结构
-    const sql = this.buildTreeQuery(id, maxDepth);
-    const response = await this.client.request<any[]>('/api/query/sql', {
-      stmt: sql,
+    const selfResponse = await this.client.request<any[]>('/api/query/sql', {
+      stmt: `SELECT box, path FROM blocks WHERE id = '${id}' AND type = 'd'`,
+    });
+    const selfRow = (selfResponse.data || [])[0];
+
+    // id 是文档：box 取该文档所在笔记本，锚点路径为该文档自身（去掉 .sy 后缀）
+    // id 是笔记本：box 就是 id 本身，锚点路径为空（笔记本根目录）
+    const box = selfRow ? selfRow.box : id;
+    const anchorPath: string = selfRow ? String(selfRow.path).replace(/\.sy$/, '') : '';
+    const prefix = `${anchorPath}/`;
+
+    const allResponse = await this.client.request<any[]>('/api/query/sql', {
+      stmt: `SELECT id, path, hpath, content FROM blocks WHERE type = 'd' AND box = '${box}'`,
     });
 
-    if (response.code !== 0) {
-      throw new Error(`Failed to get document tree: ${response.msg}`);
+    if (allResponse.code !== 0) {
+      throw new Error(`Failed to get document tree: ${allResponse.msg}`);
     }
 
-    // 转换为响应树形结构 - response.data 是对象数组
-    return this.toDocTreeNodeResponse(response.data || []);
-  }
+    interface TreeEntry {
+      node: DocTreeNodeResponse;
+      parentId: string | null;
+    }
+    const entries = new Map<string, TreeEntry>();
 
-  /**
-   * 构建查询文档树的SQL语句
-   */
-  private buildTreeQuery(id: string, maxDepth: number): string {
-    // 查询指定ID下的所有文档，按深度限制
-    return `
-      WITH RECURSIVE doc_tree AS (
-        -- 基础查询：获取起始节点
-        -- 情况1: id 是笔记本ID (box) - 获取该笔记本的顶层文档
-        -- 情况2: id 是文档ID - 获取该文档及其子文档
-        SELECT
-          b.id,
-          b.parent_id,
-          b.root_id,
-          b.content as name,
-          b.box,
-          b.path,
-          b.hpath,
-          b.type,
-          b.subtype,
-          b.ial,
-          0 as depth
-        FROM blocks b
-        WHERE b.type = 'd'
-          AND (
-            -- 情况1: 笔记本的顶层文档 (box匹配且parent_id为空)
-            (b.box = '${id}' AND b.parent_id = '')
-            OR
-            -- 情况2: 指定文档ID
-            b.id = '${id}'
-          )
+    for (const row of allResponse.data || []) {
+      const path: string = row.path;
+      if (!path.startsWith(prefix)) continue;
 
-        UNION ALL
+      const relative = path.slice(prefix.length).replace(/\.sy$/, '');
+      const segments = relative.split('/');
+      const depth = segments.length;
+      if (depth > maxDepth) continue;
 
-        -- 递归查询：获取子节点
-        SELECT
-          b.id,
-          b.parent_id,
-          b.root_id,
-          b.content as name,
-          b.box,
-          b.path,
-          b.hpath,
-          b.type,
-          b.subtype,
-          b.ial,
-          dt.depth + 1 as depth
-        FROM blocks b
-        INNER JOIN doc_tree dt ON b.parent_id = dt.id
-        WHERE b.type = 'd'
-          AND dt.depth < ${maxDepth}
-      )
-      SELECT * FROM doc_tree
-      ORDER BY depth, path;
-    `;
-  }
+      entries.set(row.id, {
+        node: {
+          id: row.id as string,
+          name: extractTitle(row.content || ''),
+          path: row.hpath as string,
+          children: [],
+        },
+        parentId: depth === 1 ? null : segments[segments.length - 2],
+      });
+    }
 
-  /**
-   * 从查询结果构建文档树响应结构
-   */
-  private toDocTreeNodeResponse(data: any[]): DocTreeNodeResponse[] {
-    if (!data || data.length === 0) return [];
-
-    // 将对象数据转换为响应节点对象
-    const nodeMap = new Map<string, DocTreeNodeResponse>();
-    const rootNodes: DocTreeNodeResponse[] = [];
-
-    data.forEach((item) => {
-      const node: DocTreeNodeResponse = {
-        id: item.id as string,
-        name: extractTitle(item.content || item.name), // content/name
-        path: item.hpath as string, // 人类可读路径
-        children: [],
-      };
-
-      nodeMap.set(node.id, node);
-
-      // 如果是根节点或没有父节点
-      const parentId = item.parent_id as string;
-      const depth = item.depth as number;
-
-      if (depth === 0 || !parentId) {
-        rootNodes.push(node);
+    const roots: DocTreeNodeResponse[] = [];
+    for (const entry of entries.values()) {
+      const parent = entry.parentId ? entries.get(entry.parentId) : undefined;
+      if (parent) {
+        parent.node.children!.push(entry.node);
       } else {
-        const parent = nodeMap.get(parentId);
-        if (parent) {
-          if (!parent.children) {
-            parent.children = [];
-          }
-          parent.children.push(node);
-        }
+        roots.push(entry.node);
       }
-    });
-
-    return rootNodes;
+    }
+    return roots;
   }
-
-
 }
