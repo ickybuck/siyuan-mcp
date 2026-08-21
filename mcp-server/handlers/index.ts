@@ -10,6 +10,12 @@ export * from './search.js';
 // 文档相关
 export * from './document.js';
 
+// 块相关
+export * from './block.js';
+
+// 数据库相关
+export * from './av.js';
+
 // 笔记本相关
 export * from './notebook.js';
 
@@ -30,7 +36,44 @@ import {
   AppendToDailyNoteHandler,
   MoveDocumentsHandler,
   GetDocumentTreeHandler,
+  RemoveDocumentHandler,
+  RenameDocumentHandler,
+  SetDocSortModeHandler,
+  SetSortHandler,
 } from './document.js';
+import {
+  GetBlockKramdownHandler,
+  UpdateBlockHandler,
+  AppendBlockHandler,
+  InsertBlockBeforeHandler,
+  InsertBlockAfterHandler,
+  DeleteBlockHandler,
+  MoveBlockHandler,
+  GetChildBlocksHandler,
+  PrependBlockHandler,
+  FoldBlockHandler,
+  UnfoldBlockHandler,
+} from './block.js';
+import {
+  CreateDatabaseHandler,
+  EmbedDatabaseHandler,
+  RenderDatabaseHandler,
+  GetDatabaseHandler,
+  GetDatabasePrimaryKeyValuesHandler,
+  SearchDatabasesHandler,
+  SetDatabaseCellHandler,
+  AddDatabaseRowsHandler,
+  RemoveDatabaseRowsHandler,
+  ChangeDatabaseLayoutHandler,
+  SetDatabaseGroupHandler,
+  GetDatabaseFilterSortHandler,
+  SetDatabaseFiltersHandler,
+  SetDatabaseSortsHandler,
+  AddDatabaseFieldHandler,
+  RemoveDatabaseFieldHandler,
+  SortDatabaseFieldHandler,
+  SortDatabaseViewFieldHandler,
+} from './av.js';
 import {
   ListNotebooksHandler,
   GetRecentlyUpdatedDocumentsHandler,
@@ -60,6 +103,43 @@ export function createAllHandlers() {
     new AppendToDailyNoteHandler(),
     new MoveDocumentsHandler(),
     new GetDocumentTreeHandler(),
+    new RemoveDocumentHandler(),
+    new RenameDocumentHandler(),
+    new SetDocSortModeHandler(),
+    new SetSortHandler(),
+
+    // 块
+    new GetBlockKramdownHandler(),
+    new UpdateBlockHandler(),
+    new AppendBlockHandler(),
+    new InsertBlockBeforeHandler(),
+    new InsertBlockAfterHandler(),
+    new DeleteBlockHandler(),
+    new MoveBlockHandler(),
+    new GetChildBlocksHandler(),
+    new PrependBlockHandler(),
+    new FoldBlockHandler(),
+    new UnfoldBlockHandler(),
+
+    // 数据库
+    new CreateDatabaseHandler(),
+    new EmbedDatabaseHandler(),
+    new RenderDatabaseHandler(),
+    new GetDatabaseHandler(),
+    new GetDatabasePrimaryKeyValuesHandler(),
+    new SearchDatabasesHandler(),
+    new SetDatabaseCellHandler(),
+    new AddDatabaseRowsHandler(),
+    new RemoveDatabaseRowsHandler(),
+    new ChangeDatabaseLayoutHandler(),
+    new SetDatabaseGroupHandler(),
+    new GetDatabaseFilterSortHandler(),
+    new SetDatabaseFiltersHandler(),
+    new SetDatabaseSortsHandler(),
+    new AddDatabaseFieldHandler(),
+    new RemoveDatabaseFieldHandler(),
+    new SortDatabaseFieldHandler(),
+    new SortDatabaseViewFieldHandler(),
 
     // 笔记本
     new ListNotebooksHandler(),

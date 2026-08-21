@@ -276,7 +276,7 @@ export class GetDocumentTreeHandler extends BaseToolHandler<
   DocTreeNodeResponse[]
 > {
   readonly name = 'get_document_tree';
-  readonly description = 'Get the hierarchical structure of notes in SiYuan with specified depth. Returns the note tree starting from a notebook or parent note.';
+  readonly description = 'Get the hierarchical structure of notes in SiYuan with specified depth. Returns the note tree starting from a notebook or parent note. Relies on the SQL index, which lags block writes by roughly 1-2 seconds — a just-created document may not appear yet.';
   readonly inputSchema: JSONSchema = {
     type: 'object',
     properties: {
@@ -296,5 +296,158 @@ export class GetDocumentTreeHandler extends BaseToolHandler<
   async execute(args: any, context: ExecutionContext): Promise<DocTreeNodeResponse[]> {
     const depth = args.depth || 1;
     return await context.siyuan.document.getDocumentTree(args.id, depth);
+  }
+}
+
+const SORT_MODE_DESCRIPTION =
+  'Sort mode, integer 0-14: 0=name asc, 1=name desc, 2=updated asc, 3=updated desc, 4=natural-number asc, ' +
+  '5=natural-number desc, 6=custom (manual order via set_sort), 7=ref-count asc, 8=ref-count desc, ' +
+  '9=created asc, 10=created desc, 11=size asc, 12=size desc, 13=sub-doc-count asc, 14=sub-doc-count desc. ' +
+  'Pass null to clear the explicit setting and inherit from the nearest parent document, notebook, or global default.';
+
+/**
+ * 根据ID删除文档
+ */
+export class RemoveDocumentHandler extends BaseToolHandler<
+  { document_id: string },
+  { success: boolean; document_id: string }
+> {
+  readonly name = 'remove_document';
+  readonly description = 'Permanently delete a note document in SiYuan by ID, including all its child documents and blocks.';
+  readonly inputSchema: JSONSchema = {
+    type: 'object',
+    properties: {
+      document_id: {
+        type: 'string',
+        description: 'The note document ID to delete',
+      },
+    },
+    required: ['document_id'],
+  };
+
+  async execute(args: any, context: ExecutionContext): Promise<{ success: boolean; document_id: string }> {
+    await context.siyuan.document.removeDocumentById(args.document_id);
+    return { success: true, document_id: args.document_id };
+  }
+}
+
+/**
+ * 根据ID重命名文档
+ */
+export class RenameDocumentHandler extends BaseToolHandler<
+  { document_id: string; title: string },
+  { success: boolean; document_id: string; title: string }
+> {
+  readonly name = 'rename_document';
+  readonly description = 'Rename a note document in SiYuan by ID.';
+  readonly inputSchema: JSONSchema = {
+    type: 'object',
+    properties: {
+      document_id: {
+        type: 'string',
+        description: 'The note document ID to rename',
+      },
+      title: {
+        type: 'string',
+        description: 'The new title',
+      },
+    },
+    required: ['document_id', 'title'],
+  };
+
+  async execute(args: any, context: ExecutionContext): Promise<{ success: boolean; document_id: string; title: string }> {
+    await context.siyuan.document.renameDocumentById(args.document_id, args.title);
+    return { success: true, document_id: args.document_id, title: args.title };
+  }
+}
+
+/**
+ * 设置笔记本或文档的排序方式
+ */
+export class SetDocSortModeHandler extends BaseToolHandler<
+  { id: string; sort_mode: number | null },
+  { success: boolean; id: string }
+> {
+  readonly name = 'set_document_sort_mode';
+  readonly description = `Set how a document's children are sorted in the SiYuan outliner. Document ID only — for notebook-level sort mode, use the notebook config tools instead. ${SORT_MODE_DESCRIPTION} To manually reorder items, first set sort_mode to 6 (custom), then call set_sort.`;
+  readonly inputSchema: JSONSchema = {
+    type: 'object',
+    properties: {
+      id: {
+        type: 'string',
+        description: 'The document ID whose children sort order is being set. Must be a regular document, not a notebook root document ID.',
+      },
+      sort_mode: {
+        type: 'number',
+        description: `${SORT_MODE_DESCRIPTION} Pass JSON null (not omitted) to unset.`,
+      },
+    },
+    required: ['id', 'sort_mode'],
+  };
+
+  async execute(args: any, context: ExecutionContext): Promise<{ success: boolean; id: string }> {
+    await context.siyuan.document.setDocSortMode(args.id, args.sort_mode);
+    return { success: true, id: args.id };
+  }
+}
+
+/**
+ * 设置文档树/笔记本手动排序
+ */
+export class SetSortHandler extends BaseToolHandler<
+  {
+    notebook_sorts?: Array<{ id: string; sort: number }>;
+    doc_sorts?: Array<{ id: string; sort: number }>;
+  },
+  { success: boolean }
+> {
+  readonly name = 'set_sort';
+  readonly description = 'Set the manual sort order of notebooks and/or documents in SiYuan by assigning each ID a sort number (lower sorts first; array order does not matter). Only takes visible effect on items whose sort_mode is 6 (custom) — set that first with set_document_sort_mode if needed. doc_sorts entries must belong to an opened, unlocked notebook; notebook root document IDs are not accepted. At least one of notebook_sorts or doc_sorts must be non-empty.';
+  readonly inputSchema: JSONSchema = {
+    type: 'object',
+    properties: {
+      notebook_sorts: {
+        type: 'array',
+        description: 'Notebook sort assignments',
+        items: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', description: 'Notebook ID' },
+            sort: { type: 'number', description: 'Sort order number, lower sorts first' },
+          },
+          required: ['id', 'sort'],
+        },
+      },
+      doc_sorts: {
+        type: 'array',
+        description: 'Document sort assignments',
+        items: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', description: 'Document ID' },
+            sort: { type: 'number', description: 'Sort order number, lower sorts first' },
+          },
+          required: ['id', 'sort'],
+        },
+      },
+    },
+    required: [],
+  };
+
+  validate(args: any): args is {
+    notebook_sorts?: Array<{ id: string; sort: number }>;
+    doc_sorts?: Array<{ id: string; sort: number }>;
+  } {
+    const notebookSorts = args.notebook_sorts || [];
+    const docSorts = args.doc_sorts || [];
+    if (notebookSorts.length === 0 && docSorts.length === 0) {
+      throw new Error('Must provide at least one non-empty array of: notebook_sorts, doc_sorts');
+    }
+    return true;
+  }
+
+  async execute(args: any, context: ExecutionContext): Promise<{ success: boolean }> {
+    await context.siyuan.document.setSort(args.notebook_sorts || [], args.doc_sorts || []);
+    return { success: true };
   }
 }
