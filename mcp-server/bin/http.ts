@@ -61,12 +61,20 @@ Usage:
   node http.js --token <API_TOKEN> [OPTIONS]
 
 Required:
-  --token <string>      SiYuan API token
+  --token <string>      SiYuan API token (or set SIYUAN_TOKEN)
 
 Options:
-  --baseUrl <string>    SiYuan base URL (default: http://127.0.0.1:6806)
-  --port, -p <number>   HTTP server port (default: 3000)
+  --baseUrl <string>    SiYuan base URL (or SIYUAN_BASE_URL; default: http://127.0.0.1:6806)
+  --port, -p <number>   HTTP server port (or PORT; default: 3000)
   --help, -h            Show this help message
+
+Environment variables:
+  SIYUAN_TOKEN          SiYuan API token. Preferred for container deployments,
+                        since it keeps the token out of the process arguments.
+  SIYUAN_BASE_URL       SiYuan base URL
+  PORT                  HTTP server port
+
+Command-line flags take precedence over environment variables.
 
 Example:
   node http.js --token YOUR_API_TOKEN
@@ -106,22 +114,26 @@ async function parseRequestBody(req: IncomingMessage): Promise<unknown> {
 async function main() {
   const config = parseArgs();
 
+  // 命令行参数优先，其次环境变量。容器部署时使用环境变量可避免令牌出现在进程参数中
+  const token = config.token || process.env.SIYUAN_TOKEN;
+  const baseUrl = config.baseUrl || process.env.SIYUAN_BASE_URL || 'http://127.0.0.1:6806';
+  const envPort = process.env.PORT ? parseInt(process.env.PORT, 10) : undefined;
+
   // 验证必需参数
-  if (!config.token) {
-    console.error('Error: --token is required\n');
+  if (!token) {
+    console.error('Error: a token is required (pass --token or set SIYUAN_TOKEN)\n');
     printHelp();
     process.exit(1);
   }
 
-  // 设置默认值
   const serverConfig: ServerConfig = {
-    token: config.token,
-    baseUrl: config.baseUrl || 'http://127.0.0.1:6806',
+    token,
+    baseUrl,
     name: 'siyuan-mcp-server-http',
     version: '0.1.0',
   };
 
-  const port = config.port || 3000;
+  const port = config.port || envPort || 3000;
 
   // 创建 MCP 服务器实例
   const mcpServer = new SiyuanMCPServer(serverConfig);

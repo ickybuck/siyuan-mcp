@@ -1,0 +1,38 @@
+# Never copy host-built dependencies into the image. A Windows/macOS node_modules
+# will overwrite the container's correctly-built one and break native modules.
+node_modules
+**/node_modules
+
+# Build output is produced inside the image
+dist
+build
+*.tsbuildinfo
+
+# VCS and tooling
+.git
+.gitignore
+.github
+.vscode
+.idea
+
+# Local env and secrets
+.env
+.env.*
+!.env.example
+
+# Tests and scratch files
+coverage
+__tests__
+*.test.ts
+debug-*.ts
+test-*.ts
+live-test-*.mjs
+*-test.mjs
+
+# Docs not needed at runtime
+*.md
+!README.md
+
+# OS noise
+.DS_Store
+Thumbs.db
