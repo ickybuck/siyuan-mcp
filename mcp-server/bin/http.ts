@@ -12,6 +12,7 @@
 import { createServer, IncomingMessage, ServerResponse } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import { SiyuanMCPServer } from '../core/server.js';
 import type { ServerConfig } from '../core/types.js';
 
@@ -135,24 +136,42 @@ async function main() {
 
   const port = config.port || envPort || 3000;
 
-  // 创建 MCP 服务器实例
-  const mcpServer = new SiyuanMCPServer(serverConfig);
-  const logger = mcpServer.getLogger();
+  // 每个会话一个 transport + Server 实例。
+  //
+  // 之前的实现共用单个 transport 并只 connect 一次，结果是服务器只接受第一个
+  // 客户端：第二次 initialize 会返回 "Server already initialized"，必须重启进程
+  // 才能换一个客户端连接。对于多客户端共享的 MCP 端点来说这是不可用的。
+  const sessions = new Map<string, StreamableHTTPServerTransport>();
 
-  // 创建单一的 StreamableHTTPServerTransport 实例
-  // 该传输会自动管理多个会话
-  const transport = new StreamableHTTPServerTransport({
-    sessionIdGenerator: () => randomUUID(),
-    onsessioninitialized: async (id: string) => {
-      logger.info(`Session initialized: ${id}`);
-    },
-    onsessionclosed: async (id: string) => {
-      logger.info(`Session closed: ${id}`);
-    },
-  });
+  // 仅用于启动期日志和工具计数
+  const bootstrapLogger = new SiyuanMCPServer(serverConfig).getLogger();
 
-  // 连接到 MCP 服务器（只需连接一次）
-  await mcpServer.getMCPServer().connect(transport);
+  async function createSession(): Promise<StreamableHTTPServerTransport> {
+    const transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: () => randomUUID(),
+      onsessioninitialized: async (id: string) => {
+        sessions.set(id, transport);
+        bootstrapLogger.info(`Session initialized: ${id} (active: ${sessions.size})`);
+      },
+      onsessionclosed: async (id: string) => {
+        sessions.delete(id);
+        bootstrapLogger.info(`Session closed: ${id} (active: ${sessions.size})`);
+      },
+    });
+
+    transport.onclose = () => {
+      if (transport.sessionId) {
+        sessions.delete(transport.sessionId);
+      }
+    };
+
+    // 每个会话都需要自己的 Server 实例：一个 Server 只能绑定一个 transport
+    const sessionServer = new SiyuanMCPServer(serverConfig);
+    await sessionServer.getMCPServer().connect(transport);
+    return transport;
+  }
+
+  const logger = bootstrapLogger;
 
   // 创建 HTTP 服务器
   const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse) => {
@@ -179,7 +198,40 @@ async function main() {
       // 解析请求体（对于 POST 请求）
       const parsedBody = req.method === 'POST' ? await parseRequestBody(req) : undefined;
 
-      // 处理请求（transport 会自动管理会话）
+      const sessionId = req.headers['mcp-session-id'] as string | undefined;
+
+      let transport: StreamableHTTPServerTransport | undefined;
+      if (sessionId) {
+        transport = sessions.get(sessionId);
+        if (!transport) {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(
+            JSON.stringify({
+              jsonrpc: '2.0',
+              error: { code: -32001, message: 'Session not found or expired' },
+              id: null,
+            })
+          );
+          return;
+        }
+      } else if (isInitializeRequest(parsedBody)) {
+        // 新客户端：为其建立独立会话
+        transport = await createSession();
+      } else {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(
+          JSON.stringify({
+            jsonrpc: '2.0',
+            error: {
+              code: -32000,
+              message: 'Bad Request: Mcp-Session-Id header is required for non-initialize requests',
+            },
+            id: null,
+          })
+        );
+        return;
+      }
+
       await transport.handleRequest(req, res, parsedBody);
     } catch (error) {
       logger.error(`Request error: ${error}`);
@@ -218,7 +270,8 @@ Press Ctrl+C to stop the server.
   process.on('SIGINT', async () => {
     console.log('\nShutting down server...');
     httpServer.close();
-    await transport.close();
+    await Promise.allSettled([...sessions.values()].map((t) => t.close()));
+    sessions.clear();
     process.exit(0);
   });
 }
