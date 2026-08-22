@@ -56,6 +56,9 @@ import {
 } from './block.js';
 import {
   CreateDatabaseHandler,
+  AddDatabaseFieldsHandler,
+  AddDatabaseRowsWithValuesHandler,
+  SetDatabaseCellsHandler,
   EmbedDatabaseHandler,
   RenderDatabaseHandler,
   GetDatabaseHandler,
@@ -123,6 +126,9 @@ export function createAllHandlers() {
 
     // 数据库
     new CreateDatabaseHandler(),
+    new AddDatabaseFieldsHandler(),
+    new AddDatabaseRowsWithValuesHandler(),
+    new SetDatabaseCellsHandler(),
     new EmbedDatabaseHandler(),
     new RenderDatabaseHandler(),
     new GetDatabaseHandler(),

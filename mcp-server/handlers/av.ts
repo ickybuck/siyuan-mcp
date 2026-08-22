@@ -5,15 +5,25 @@
 import { BaseToolHandler } from './base.js';
 import type { ExecutionContext, JSONSchema } from '../core/types.js';
 
+const KEY_TYPES = [
+  'text', 'number', 'date', 'select', 'mSelect', 'url', 'email', 'phone',
+  'mAsset', 'template', 'created', 'updated', 'checkbox', 'relation', 'rollup', 'lineNumber',
+];
+
 const CELL_VALUE_DESCRIPTION =
-  'Partial cell Value object; shape depends on the field type: ' +
-  'text: {"text":{"content":"..."}} | number: {"number":{"content":42,"isNotEmpty":true}} | ' +
-  'date: {"date":{"content":<ms-epoch>,"isNotEmpty":true}} | ' +
-  'select: {"mSelect":[{"content":"Done","color":"1"}]} (at most one option) | ' +
-  'mSelect: {"mSelect":[{"content":"A","color":"1"},{"content":"B","color":"2"}]} | ' +
-  'url: {"url":{"content":"https://..."}} | email: {"email":{"content":"a@b.com"}} | ' +
-  'phone: {"phone":{"content":"..."}} | checkbox: {"checkbox":{"checked":true}} | ' +
-  'mAsset: {"mAsset":[{"type":"image"|"file","name":"","content":"https://..."}]} (replaces the whole array).';
+  'Cell value in plain form — the field type determines how it is interpreted, so you do not need SiYuan\'s internal value structs. ' +
+  'text: "some text" | number: 42 | date: "2026-05-25" or an ISO datetime or a millisecond timestamp | ' +
+  'select: "Done" | mSelect: ["A","B"] | url/email/phone: "https://..." | checkbox: true | ' +
+  'mAsset: ["https://example.com/img.png"]. ' +
+  'Dates given as YYYY-MM-DD are interpreted at midnight in the SiYuan instance\'s local timezone, which is what the UI displays — ' +
+  'passing a UTC midnight timestamp instead renders as the previous day in timezones west of UTC. ' +
+  'Pass null or "" to clear a value. ' +
+  'SiYuan\'s verbose Value structs (e.g. {"number":{"content":42,"isNotEmpty":true}}) are still accepted unchanged as an escape hatch.';
+
+const FIELD_TYPES_DESCRIPTION =
+  'text, number, date, select, mSelect, url, email, phone, mAsset, template, created, updated, checkbox, relation, rollup, lineNumber. ' +
+  'Note: relation and rollup fields are created without their target configuration and are not usable until wired up, ' +
+  'which this server cannot yet do.';
 
 const BLOCKID_NOOP_WARNING =
   'Only takes effect on a database embedded in a document (has a real block_id from embed_database). ' +
@@ -22,18 +32,151 @@ const BLOCKID_NOOP_WARNING =
 /**
  * 创建游离数据库
  */
-export class CreateDatabaseHandler extends BaseToolHandler<Record<string, never>, { av_id: string; data: any }> {
+export class CreateDatabaseHandler extends BaseToolHandler<
+  { fields?: Array<{ name: string; type: string; icon?: string }>; keep_default_select?: boolean },
+  any
+> {
   readonly name = 'create_database';
-  readonly description = 'Create a new SiYuan database (attribute view), not yet embedded in any document. Always created with table layout and a single primary-key column — add fields with add_database_field, add rows with add_database_rows. Call embed_database afterward to make it visible in the outliner (required before filters, sorts, grouping, or layout changes will take effect).';
+  readonly description = `Create a new SiYuan database (attribute view), optionally with its whole field schema in one call. Not yet embedded in any document — call embed_database afterward, which is required before filters, sorts, grouping or layout changes take effect. Always table layout with one primary-key column. A default Select column is created by SiYuan and removed automatically unless keep_default_select is set. Field types: ${FIELD_TYPES_DESCRIPTION}`;
   readonly inputSchema: JSONSchema = {
     type: 'object',
-    properties: {},
+    properties: {
+      fields: {
+        type: 'array',
+        description: 'Fields to create, in order. Omit to create a bare database.',
+        items: {
+          type: 'object',
+          properties: {
+            name: { type: 'string', description: 'Field display name' },
+            type: { type: 'string', description: 'Field type', enum: KEY_TYPES },
+            icon: { type: 'string', description: 'Optional emoji icon' },
+          },
+          required: ['name', 'type'],
+        },
+      },
+      keep_default_select: {
+        type: 'boolean',
+        description: 'Keep SiYuan\'s auto-created default Select column. Defaults to false.',
+      },
+    },
     required: [],
   };
 
-  async execute(_args: any, context: ExecutionContext): Promise<{ av_id: string; data: any }> {
-    const { avID, data } = await context.siyuan.av.createDatabase();
-    return { av_id: avID, data };
+  async execute(args: any, context: ExecutionContext): Promise<any> {
+    if (!args.fields || args.fields.length === 0) {
+      const { avID, data } = await context.siyuan.av.createDatabase();
+      return { av_id: avID, data };
+    }
+    const r = await context.siyuan.av.createDatabaseWithSchema(args.fields, {
+      keepDefaultSelect: args.keep_default_select,
+    });
+    return { av_id: r.avID, primary_key_id: r.primaryKeyID, fields: r.fields };
+  }
+}
+
+/**
+ * 批量添加字段
+ */
+export class AddDatabaseFieldsHandler extends BaseToolHandler<
+  { av_id: string; fields: Array<{ name: string; type: string; icon?: string }> },
+  { fields: Record<string, string> }
+> {
+  readonly name = 'add_database_fields';
+  readonly description = `Add several fields (columns) to an existing SiYuan database in one call, in the order given. Returns a map of field name to new field ID. Field types: ${FIELD_TYPES_DESCRIPTION}`;
+  readonly inputSchema: JSONSchema = {
+    type: 'object',
+    properties: {
+      av_id: { type: 'string', description: 'Database ID' },
+      fields: {
+        type: 'array',
+        description: 'Fields to create, in order',
+        items: {
+          type: 'object',
+          properties: {
+            name: { type: 'string', description: 'Field display name' },
+            type: { type: 'string', description: 'Field type', enum: KEY_TYPES },
+            icon: { type: 'string', description: 'Optional emoji icon' },
+          },
+          required: ['name', 'type'],
+        },
+      },
+    },
+    required: ['av_id', 'fields'],
+  };
+
+  async execute(args: any, context: ExecutionContext): Promise<{ fields: Record<string, string> }> {
+    return { fields: await context.siyuan.av.addFields(args.av_id, args.fields) };
+  }
+}
+
+/**
+ * 批量创建行并同时写入值
+ */
+export class AddDatabaseRowsWithValuesHandler extends BaseToolHandler<
+  { av_id: string; rows: Array<Record<string, any>>; chunk_size?: number },
+  { row_count: number; chunks: number }
+> {
+  readonly name = 'add_database_rows_with_values';
+  readonly description = `Create detached rows AND set all their cell values in one call — the tool to use for bulk import. Each row is an object mapping field ID to value, including the primary-key field. This replaces the create-then-render-then-set-each-cell sequence: 100 rows of 10 fields is one call here versus roughly 1,002 otherwise. ${CELL_VALUE_DESCRIPTION} Values for unknown field IDs are silently discarded by SiYuan, so this tool rejects them up front instead. Rows are sent in chunks (default 100) because the kernel has historically been unstable under very large or very rapid writes. Take a snapshot with create_snapshot before a large import. Rows created this way are detached, i.e. they live only in the database and are not bound to document blocks.`;
+  readonly inputSchema: JSONSchema = {
+    type: 'object',
+    properties: {
+      av_id: { type: 'string', description: 'Database ID' },
+      rows: {
+        type: 'array',
+        description: 'One object per row, mapping field ID to value. Get field IDs from create_database, add_database_fields, or get_database.',
+        items: { type: 'object' },
+      },
+      chunk_size: {
+        type: 'number',
+        description: 'Rows per request. Defaults to 100. Lower it if the kernel struggles on very wide databases.',
+      },
+    },
+    required: ['av_id', 'rows'],
+  };
+
+  async execute(args: any, context: ExecutionContext): Promise<{ row_count: number; chunks: number }> {
+    const r = await context.siyuan.av.appendDetachedRowsWithValues(args.av_id, args.rows, {
+      chunkSize: args.chunk_size,
+    });
+    return { row_count: r.rowCount, chunks: r.chunks };
+  }
+}
+
+/**
+ * 批量设置已有行的单元格
+ */
+export class SetDatabaseCellsHandler extends BaseToolHandler<
+  { av_id: string; updates: Array<{ item_id: string; key_id: string; value: any }>; chunk_size?: number },
+  { updated: number; chunks: number }
+> {
+  readonly name = 'set_database_cells';
+  readonly description = `Set many cell values on EXISTING rows in one call. Use add_database_rows_with_values when creating rows; use this to correct or update rows that already exist. ${CELL_VALUE_DESCRIPTION} item_id is the rendered row id from render_database (rows[].id / cards[].id), which is NOT the same as the bound block ID — passing the wrong one stores an orphan value that never appears in the cell.`;
+  readonly inputSchema: JSONSchema = {
+    type: 'object',
+    properties: {
+      av_id: { type: 'string', description: 'Database ID' },
+      updates: {
+        type: 'array',
+        description: 'Cell updates to apply',
+        items: {
+          type: 'object',
+          properties: {
+            item_id: { type: 'string', description: 'Row ID from render_database' },
+            key_id: { type: 'string', description: 'Field (column) ID' },
+            value: { description: 'Cell value; see the tool description for accepted forms' },
+          },
+          required: ['item_id', 'key_id', 'value'],
+        },
+      },
+      chunk_size: { type: 'number', description: 'Updates per request. Defaults to 100.' },
+    },
+    required: ['av_id', 'updates'],
+  };
+
+  async execute(args: any, context: ExecutionContext): Promise<{ updated: number; chunks: number }> {
+    const updates = args.updates.map((u: any) => ({ itemID: u.item_id, keyID: u.key_id, value: u.value }));
+    return await context.siyuan.av.batchSetCells(args.av_id, updates, { chunkSize: args.chunk_size });
   }
 }
 
@@ -473,11 +616,6 @@ export class SetDatabaseSortsHandler extends BaseToolHandler<
     return { success: true };
   }
 }
-
-const KEY_TYPES = [
-  'text', 'number', 'date', 'select', 'mSelect', 'url', 'email', 'phone',
-  'mAsset', 'template', 'created', 'updated', 'checkbox', 'relation', 'rollup', 'lineNumber',
-];
 
 /**
  * 添加字段
