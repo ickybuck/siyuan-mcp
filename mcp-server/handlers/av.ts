@@ -213,6 +213,74 @@ export class ConfigureRollupFieldHandler extends BaseToolHandler<
 }
 
 /**
+ * 行 ID 与绑定块 ID 互查
+ */
+export class ResolveDatabaseIdsHandler extends BaseToolHandler<
+  { av_id: string; item_ids?: string[]; block_ids?: string[] },
+  { item_ids?: string[]; block_ids?: string[] }
+> {
+  readonly name = 'resolve_database_ids';
+  readonly description = 'Translate between a database\'s row IDs and the document block IDs its rows are bound to. These are different identifiers and confusing them is a common source of silent data loss: writing a cell with a block ID where a row ID belongs stores an orphan value that never appears. Pass item_ids to get the bound block IDs, or block_ids to get the row IDs. Detached rows have no bound block and come back empty.';
+  readonly inputSchema: JSONSchema = {
+    type: 'object',
+    properties: {
+      av_id: { type: 'string', description: 'Database ID' },
+      item_ids: { type: 'array', items: { type: 'string' }, description: 'Row IDs to resolve to bound block IDs' },
+      block_ids: { type: 'array', items: { type: 'string' }, description: 'Block IDs to resolve to row IDs' },
+    },
+    required: ['av_id'],
+  };
+
+  validate(args: any): args is { av_id: string; item_ids?: string[]; block_ids?: string[] } {
+    if (!args.item_ids?.length && !args.block_ids?.length) {
+      throw new Error('Provide at least one of: item_ids, block_ids');
+    }
+    return true;
+  }
+
+  async execute(args: any, context: ExecutionContext): Promise<{ item_ids?: string[]; block_ids?: string[] }> {
+    const out: { item_ids?: string[]; block_ids?: string[] } = {};
+    if (args.item_ids?.length) {
+      out.block_ids = await context.siyuan.av.getBoundBlockIDsByItemIDs(args.av_id, args.item_ids);
+    }
+    if (args.block_ids?.length) {
+      out.item_ids = await context.siyuan.av.getItemIDsByBoundIDs(args.av_id, args.block_ids);
+    }
+    return out;
+  }
+}
+
+/**
+ * 批量替换行绑定的块
+ */
+export class ReplaceDatabaseBlocksHandler extends BaseToolHandler<
+  { av_id: string; replacements: Record<string, string>; is_detached?: boolean },
+  { replaced: number }
+> {
+  readonly name = 'replace_database_blocks';
+  readonly description = 'Re-point database rows from one set of bound blocks to another, given a map of old block ID to new block ID. Use this when the documents a database refers to have been recreated — a re-import, for instance — and the rows would otherwise still point at the old, now-deleted blocks. This changes which block each row is bound to; it does not alter cell values.';
+  readonly inputSchema: JSONSchema = {
+    type: 'object',
+    properties: {
+      av_id: { type: 'string', description: 'Database ID' },
+      replacements: {
+        type: 'object',
+        description: 'Map of old block ID to new block ID, e.g. {"20260101120000-aaaaaaa":"20260202120000-bbbbbbb"}',
+      },
+      is_detached: {
+        type: 'boolean',
+        description: 'Whether the resulting rows should be detached (not bound to a document block). Defaults to false.',
+      },
+    },
+    required: ['av_id', 'replacements'],
+  };
+
+  async execute(args: any, context: ExecutionContext): Promise<{ replaced: number }> {
+    return await context.siyuan.av.batchReplaceBlocks(args.av_id, args.replacements, args.is_detached ?? false);
+  }
+}
+
+/**
  * 列出未被引用的数据库
  */
 export class ListUnusedDatabasesHandler extends BaseToolHandler<Record<string, never>, any[]> {

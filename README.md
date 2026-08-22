@@ -33,7 +33,7 @@ The code in this project is primarily developed with AI assistance. While functi
 ## 🍴 About This Fork
 
 This is a fork of [porkll/siyuan-mcp](https://github.com/porkll/siyuan-mcp) that expands the tool
-surface from 16 to 49 tools. Upstream exposed only document-granular operations, which meant editing
+surface from 16 to 58 tools. Upstream exposed only document-granular operations, which meant editing
 one paragraph of a large note required rewriting the whole document. This fork adds **block-level
 editing** and a complete **database (attribute view)** layer.
 
@@ -45,9 +45,9 @@ The practical difference: a 148-byte `update_block` call can edit a single parag
 | Area | Upstream | This fork |
 | --- | --- | --- |
 | Block operations | 0 tools | 11 tools |
-| Databases (attribute views) | 0 tools | 18 tools |
+| Databases (attribute views) | 0 tools | 27 tools |
 | Filetree | partial | +4 tools |
-| **Total** | **16** | **49** |
+| **Total** | **16** | **58** |
 
 All added endpoints were verified against a live SiYuan 3.8.1 kernel, including negative cases.
 See [Notes & Gotchas](#-notes--gotchas) for behaviours that are easy to get wrong.
@@ -55,7 +55,7 @@ See [Notes & Gotchas](#-notes--gotchas) for behaviours that are easy to get wron
 ## ✨ Features
 
 - 🚀 Full MCP (Model Context Protocol) implementation
-- 📝 49 tools covering documents, blocks, databases, notebooks, tags, and snapshots
+- 📝 58 tools covering documents, blocks, databases, notebooks, tags, and snapshots
 - 🧱 **Block-level editing** — edit, insert, move, fold, and delete individual blocks
 - 🗃️ **Database support** — create databases, add fields and rows, set cell values, filter, sort, group, switch layouts
 - 🔍 Unified search (content, filename, tag, and combinations)
@@ -173,7 +173,7 @@ After configuration, restart your MCP client (Cursor/Claude Desktop) and try:
 
 ## 🛠️ Available MCP Tools
 
-Once configured, you can interact with SiYuan through natural language. The server provides 49 tools:
+Once configured, you can interact with SiYuan through natural language. The server provides 58 tools:
 
 ### 🔍 Search
 - **unified_search** - Unified search tool: search by content, filename, tag, or any combination
@@ -212,16 +212,21 @@ SiYuan databases are called *attribute views*. A database can exist **detached**
 document) or **embedded** in a document as a block. Several view operations only work on embedded
 databases — see [Notes & Gotchas](#-notes--gotchas).
 
-- **create_database** - Create a new (detached) database
+- **create_database** - Create a new (detached) database, optionally with its whole field schema in one call
 - **embed_database** - Embed a database into a document, returning the block ID
 - **render_database** - Read computed rows/cards for a view, paginated (the main read tool)
 - **get_database** - Get the raw definition: fields, ordering, view layouts
 - **get_database_primary_key_values** - List primary-key row values, filtered and paginated
 - **search_databases** - Search databases by name
 - **add_database_rows** - Add rows, either bound to blocks or detached
+- **add_database_rows_with_values** - Create rows AND set every cell in one call (bulk import)
+- **set_database_cells** - Set many cells on existing rows in one call
 - **remove_database_rows** - Remove rows by row ID
 - **set_database_cell** - Set one cell's value
 - **add_database_field** - Add a field/column (16 field types)
+- **add_database_fields** - Add several fields in one call
+- **configure_relation_field** - Point a relation field at its target database (required; relations are inert until configured)
+- **configure_rollup_field** - Configure a rollup over a configured relation
 - **remove_database_field** - Remove a field and all its values
 - **sort_database_field** - Reorder a field globally, across all views
 - **sort_database_view_field** - Reorder a field within a single view
@@ -230,6 +235,9 @@ databases — see [Notes & Gotchas](#-notes--gotchas).
 - **set_database_sorts** - Replace a view's sorts
 - **set_database_group** - Set or clear kanban grouping
 - **change_database_layout** - Switch between table, gallery, and kanban
+- **resolve_database_ids** - Translate between row IDs and bound block IDs
+- **replace_database_blocks** - Re-point rows at different bound blocks
+- **list_unused_databases** / **remove_unused_databases** - Find and clear orphaned databases
 
 ### 📅 Daily Note
 - **append_to_daily_note** - Append to today's daily note (auto-creates if needed)
@@ -264,6 +272,87 @@ Ask your AI assistant naturally:
 "Move document X to the root of my Work notebook"
 "Move documents X and Y under document Z"
 ```
+
+## 📥 Working with databases (and bulk import)
+
+SiYuan databases are *attribute views*. The tools are designed so that a bulk import is a handful
+of calls rather than thousands.
+
+### Build a database in ~4 calls
+
+```
+create_database(fields: [...])          → av_id, primary_key_id, field name→id map
+add_database_rows_with_values(rows)     → creates rows AND sets every cell
+embed_database(av_id, parent_id)        → makes it visible in a document
+```
+
+Writing one cell at a time instead costs roughly `1 + N + N×M` calls. For a 1,739-row × 13-field
+sleep log that is about 22,000 calls versus about 19.
+
+### Values are written plainly
+
+The field's declared type determines interpretation, so you don't build SiYuan's internal structs:
+
+| Field type | Write |
+| --- | --- |
+| `text` | `"some text"` |
+| `number` | `42` |
+| `date` | `"2026-05-25"`, an ISO datetime, or ms epoch |
+| `select` | `"Done"` |
+| `mSelect` | `["A", "B"]` |
+| `url` / `email` / `phone` | `"https://…"` |
+| `checkbox` | `true` |
+| `relation` | `["<target row id>"]` |
+
+`YYYY-MM-DD` is interpreted at **local midnight in the instance's timezone**, matching what the UI
+shows. Passing a UTC-midnight timestamp renders as the *previous day* west of UTC. Set the
+container's `TZ` to the user's timezone.
+
+### Make imports resumable
+
+Give each row an `item_id`. The kernel adopts it as the row ID, and re-sending a row whose ID
+already exists **updates** rather than duplicates — so an interrupted import can just be re-run.
+
+```js
+import { deriveItemId } from '@porkll/siyuan-mcp';
+const item_id = deriveItemId(avID, sourceRecordKey); // stable, correct format
+```
+
+Verified behaviour of the batch endpoint:
+
+| Situation | Behaviour |
+| --- | --- |
+| Chunk contains an invalid value or unknown field ID | **Atomic reject** — nothing written, safe to resend |
+| Chunk succeeds and is sent again | **Duplicates**, unless rows carry `item_id` |
+| Chunk succeeds and is resent *with* `item_id` | No-op — rows are updated in place |
+
+Because a timeout doesn't tell you which case you're in, `item_id` is the only safe basis for retry.
+
+### Relations must be configured
+
+A `relation` or `rollup` field is created **inert** — it exists but points at nothing, and values
+written to it vanish without error. There is no REST endpoint for this; it goes through
+`/api/transactions`, which is why wrapping the `av` API alone isn't enough.
+
+Order matters when migrating databases that reference each other:
+
+1. Create and populate the **target** database first
+2. `configure_relation_field` — point the relation at that database (optionally two-way, which
+   creates the back-relation field and returns its ID)
+3. Write relation values as an array of target row IDs
+4. `configure_rollup_field` **last** — it depends on a configured relation
+
+### Clean up after failures
+
+A database created but never embedded is invisible in the UI yet still present.
+`list_unused_databases` finds them, `remove_unused_databases` clears them. Don't run the latter
+mid-build — a database you haven't embedded yet counts as unused.
+
+### Ask the server itself
+
+The server exposes an MCP **prompt**, `siyuan-usage-guide`, covering tool choice, ordering
+constraints, and the silent failure modes. MCP clients can fetch it directly — it's aimed at the
+model doing the calling rather than at a human reader.
 
 ## ⚠️ Notes & Gotchas
 

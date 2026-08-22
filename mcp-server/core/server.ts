@@ -89,7 +89,8 @@ export class SiyuanMCPServer {
         prompts: [
           {
             name: 'siyuan-usage-guide',
-            description: 'SiYuan MCP 服务器的使用指南和最佳实践',
+            description:
+              'How to use this server effectively: which tool to reach for, the ordering constraints that matter, and the failure modes that are silent rather than loud. Worth reading before bulk imports or any database work.',
           },
         ],
       };
@@ -179,109 +180,85 @@ export class SiyuanMCPServer {
    * 获取使用指南内容
    */
   private getUsageGuide(): string {
-    return `# SiYuan MCP 服务器使用指南
+    return `# SiYuan MCP — usage guide
 
-## 概述
+## Choosing a tool
 
-SiYuan MCP 服务器提供了一套工具用于操作思源笔记，包括搜索、文档管理、快照备份等功能。
+**Editing note text.** Prefer block-level tools over document-level ones. \`update_document\`
+rewrites an entire note; \`update_block\` changes one block and leaves the rest byte-identical.
+On a 10,000-word note that is the difference between resending the whole document and sending a
+few hundred bytes. Use \`get_child_blocks\` to find the block IDs first — that is the discovery
+path for every block tool.
 
-## 重要提示
+**Reading.** \`get_document_content\` for whole notes, \`get_block_kramdown\` for one block's exact
+source including its attributes, \`unified_search\` to find things, \`get_document_tree\` for
+structure.
 
-### 数据安全
+**Databases.** \`render_database\` is the main read: it returns computed rows and the row IDs that
+every write tool needs. \`get_database\` returns the schema and raw view config but no rows.
 
-⚠️ **在执行批量修改或删除操作前，请务必先创建快照！**
+## Bulk import
 
-\`\`\`
-1. 使用 create_snapshot 创建快照（建议添加描述说明）
-2. 执行修改操作
-3. 如果出错，使用 list_snapshots 查看快照列表
-4. 使用 rollback_snapshot 回滚到指定快照
-\`\`\`
+Do not create rows one at a time. \`add_database_rows_with_values\` creates rows and sets every
+cell in one request; \`create_database\` accepts a whole field schema in one call. A 3-row,
+10-field database takes about 4 calls this way and roughly 45 without.
 
-### 工作流程建议
+Recommended order:
 
-1. **搜索文档**：使用 \`search_by_filename\` 或 \`search_by_content\` 查找目标文档
-2. **获取内容**：使用 \`get_document_content\` 查看文档内容
-3. **创建快照**：使用 \`create_snapshot\` 保存当前状态
-4. **修改文档**：使用 \`update_document\`、\`append_to_document\` 等修改内容
-5. **验证结果**：再次获取内容确认修改正确
-6. **必要时回滚**：如果出错，使用 \`rollback_snapshot\` 恢复
+1. \`create_snapshot\` — bulk writes are hard to undo without one
+2. \`create_database\` with its \`fields\` schema
+3. \`add_database_rows_with_values\`, giving each row an \`item_id\`
+4. \`embed_database\` to place it in a document
+5. filters, sorts, grouping, layout — only after embedding
 
-## 工具分类
+Give every row an \`item_id\`. Re-sending a row whose id already exists updates it instead of
+creating a duplicate, which means an interrupted import can simply be re-run from the start.
+Without it, a retry after a timeout silently doubles your data.
 
-### 搜索工具（3个）
-- \`search_by_filename\`: 按文件名搜索文档
-- \`search_by_content\`: 按内容搜索文档
-- \`sql_query\`: 执行 SQL 查询（高级用法）
+## Relations between databases
 
-### 文档工具（6个）
-- \`get_document_content\`: 获取文档的 Markdown 内容
-- \`create_document\`: 在指定笔记本创建新文档
-- \`append_to_document\`: 向文档追加内容
-- \`update_document\`: 更新（覆盖）文档内容
-- \`append_to_daily_note\`: 追加内容到今日笔记
-- \`move_document\`: 移动文档到其他位置
+A field of type \`relation\` or \`rollup\` is created inert. It exists, and it points at nothing.
+Values written to it go nowhere and no error is raised. Wire it up:
 
-### 笔记本工具（2个）
-- \`list_notebooks\`: 列出所有笔记本
-- \`get_recently_updated_documents\`: 获取最近更新的文档
+1. Create and populate the target database first
+2. \`configure_relation_field\` to point the relation at that database
+3. Write relation values as an array of target row IDs
+4. \`configure_rollup_field\` last — it depends on a configured relation
 
-### 快照工具（3个）
-- \`create_snapshot\`: 创建数据快照
-- \`list_snapshots\`: 列出所有快照
-- \`rollback_snapshot\`: 回滚到指定快照
+Migrating databases that reference each other in the wrong order silently loses the links.
 
-## 使用示例
+## Failure modes that are silent
 
-### 示例1：安全地批量修改文档
+These fail without raising an error, so they are worth knowing rather than discovering:
 
-\`\`\`
-1. create_snapshot(memo: "批量修改前的备份")
-2. search_by_content(content: "需要修改的内容")
-3. 对每个搜索结果：
-   - get_document_content(document_id: "...")
-   - 修改内容
-   - update_document(document_id: "...", content: "新内容")
-4. 验证修改结果
-5. 如有问题：rollback_snapshot(snapshot_id: "...")
-\`\`\`
+- **View operations on a detached database.** \`set_database_filters\`, \`set_database_sorts\`,
+  \`set_database_group\` and \`change_database_layout\` do nothing unless the database is embedded
+  in a document. These tools require a \`block_id\` and fail fast instead.
+- **Row ID versus bound block ID.** They are different identifiers. Writing a cell with the wrong
+  one stores a value that never appears anywhere. \`resolve_database_ids\` converts between them.
+- **Unconfigured relation and rollup fields**, as above.
+- **The SQL index lags writes by one to two seconds.** A document created a moment ago may not
+  appear in \`get_document_tree\` yet.
+- **Grouping hides rows.** A grouped view can report \`rowCount\` above zero while returning an
+  empty \`rows\` array, and grouping survives a layout change. Clear the group before concluding
+  data is missing.
 
-### 示例2：创建每日记录
+## Values
 
-\`\`\`
-1. list_notebooks() 获取笔记本列表
-2. append_to_daily_note(notebook_id: "...", content: "今日总结...")
-\`\`\`
+Write cell values plainly — \`42\`, \`"2026-05-25"\`, \`"Done"\`, \`["A","B"]\`, \`true\`. The server
+converts them according to each field's type. Dates given as \`YYYY-MM-DD\` are interpreted at
+local midnight in the instance's timezone, which is what the interface displays; passing a UTC
+timestamp instead renders as the previous day.
 
-### 示例3：整理文档结构
+## Safety
 
-\`\`\`
-1. create_snapshot(memo: "整理文档结构前")
-2. search_by_filename(filename: "待整理的文档")
-3. move_document(from_ids: "文档ID", to_id: "目标文档ID")
-\`\`\`
-
-## 注意事项
-
-1. **文档 ID**：思源笔记中每个文档都有唯一的 ID（格式如 \`20240101120000-abc1234\`）
-2. **路径格式**：创建文档时路径格式为 \`/folder/document\`（无需 .md 扩展名）
-3. **Markdown 格式**：所有内容使用 Markdown 格式
-4. **快照限制**：快照功能需要思源笔记开启数据仓库功能
-5. **并发操作**：避免同时修改同一文档，可能导致冲突
-
-## 最佳实践
-
-✅ **推荐做法**：
-- 在批量操作前创建快照
-- 先搜索确认目标文档，再进行修改
-- 修改后验证结果
-- 保持快照命名清晰（包含操作说明）
-
-❌ **避免做法**：
-- 不创建快照就执行批量删除
-- 不验证搜索结果就批量修改
-- 对不熟悉的文档执行覆盖操作
-- 忽略错误继续执行后续操作
+- \`create_snapshot\` before bulk or destructive work; \`list_snapshots\` and \`rollback_to_snapshot\`
+  to recover.
+- \`remove_document\` deletes child documents too.
+- \`remove_database_rows\` deletes detached rows outright but only unbinds rows backed by real
+  blocks; the underlying documents survive.
+- \`remove_unused_databases\` is irreversible and counts any database you have created but not yet
+  embedded as unused. Do not run it while building one.
 `;
   }
 
