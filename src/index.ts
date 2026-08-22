@@ -186,6 +186,6 @@ export { SiyuanDocumentApi } from './api/document.js';
 export { SiyuanNotebookApi } from './api/notebook.js';
 export { SiyuanSnapshotApi } from './api/snapshot.js';
 export { SiyuanTagApi } from './api/tag.js';
-export { SiyuanAvApi } from './api/av.js';
+export { SiyuanAvApi, normalizeValue, deriveItemId, ITEM_ID_KEY } from './api/av.js';
 export { DailyNoteUtils } from './utils/daily-note.js';
 export { SiyuanHelpers } from './utils/helpers.js';

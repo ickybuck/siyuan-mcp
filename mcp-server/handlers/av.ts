@@ -117,14 +117,16 @@ export class AddDatabaseRowsWithValuesHandler extends BaseToolHandler<
   { row_count: number; chunks: number }
 > {
   readonly name = 'add_database_rows_with_values';
-  readonly description = `Create detached rows AND set all their cell values in one call — the tool to use for bulk import. Each row is an object mapping field ID to value, including the primary-key field. This replaces the create-then-render-then-set-each-cell sequence: 100 rows of 10 fields is one call here versus roughly 1,002 otherwise. ${CELL_VALUE_DESCRIPTION} Values for unknown field IDs are silently discarded by SiYuan, so this tool rejects them up front instead. Rows are sent in chunks (default 100) because the kernel has historically been unstable under very large or very rapid writes. Take a snapshot with create_snapshot before a large import. Rows created this way are detached, i.e. they live only in the database and are not bound to document blocks.`;
+  readonly description = `Create detached rows AND set all their cell values in one call — the tool to use for bulk import. Each row is an object mapping field ID to value, including the primary-key field. This replaces the create-then-render-then-set-each-cell sequence: 100 rows of 10 fields is one call here versus roughly 1,002 otherwise. ${CELL_VALUE_DESCRIPTION}
+RETRY SAFETY, verified against the kernel: a chunk is atomic, so if it fails nothing in it was written and it is safe to send again. But a chunk that SUCCEEDS and is sent again creates duplicate rows. After a timeout or any uncertain failure, do not blindly retry — either read the database back first, or use item_id. Giving each row an "item_id" pins its row ID, and re-sending a row with an id that already exists updates it instead of duplicating, which makes an import safely resumable. item_id must be 14 digits, a hyphen, then 7 lowercase alphanumerics; derive it from something stable in the source data.
+An unknown field ID causes SiYuan to reject the whole batch, so this tool checks IDs up front and names the offender. Rows are chunked (default 100) because the kernel has historically been unstable under very large or rapid writes. Take a snapshot with create_snapshot before a large import. Rows created this way are detached: they live only in the database and are not bound to document blocks.`;
   readonly inputSchema: JSONSchema = {
     type: 'object',
     properties: {
       av_id: { type: 'string', description: 'Database ID' },
       rows: {
         type: 'array',
-        description: 'One object per row, mapping field ID to value. Get field IDs from create_database, add_database_fields, or get_database.',
+        description: 'One object per row, mapping field ID to value. Get field IDs from create_database, add_database_fields, or get_database. Optionally include "item_id" to pin the row ID and make the import idempotent and resumable.',
         items: { type: 'object' },
       },
       chunk_size: {
@@ -140,6 +142,33 @@ export class AddDatabaseRowsWithValuesHandler extends BaseToolHandler<
       chunkSize: args.chunk_size,
     });
     return { row_count: r.rowCount, chunks: r.chunks };
+  }
+}
+
+/**
+ * 列出未被引用的数据库
+ */
+export class ListUnusedDatabasesHandler extends BaseToolHandler<Record<string, never>, any[]> {
+  readonly name = 'list_unused_databases';
+  readonly description = 'List databases that are not embedded in any document. A failed or abandoned import leaves these behind, where they are invisible in the UI but still occupying the workspace. Use before remove_unused_databases to see what would be deleted.';
+  readonly inputSchema: JSONSchema = { type: 'object', properties: {}, required: [] };
+
+  async execute(_args: any, context: ExecutionContext): Promise<any[]> {
+    return await context.siyuan.av.getUnusedAttributeViews();
+  }
+}
+
+/**
+ * 删除未被引用的数据库
+ */
+export class RemoveUnusedDatabasesHandler extends BaseToolHandler<Record<string, never>, { success: boolean }> {
+  readonly name = 'remove_unused_databases';
+  readonly description = 'Permanently delete every database not embedded in any document. Irreversible — run list_unused_databases first to see what will go, and create_snapshot before running it. Note that a database you just created but have not yet embedded counts as unused, so do not run this in the middle of building one.';
+  readonly inputSchema: JSONSchema = { type: 'object', properties: {}, required: [] };
+
+  async execute(_args: any, context: ExecutionContext): Promise<{ success: boolean }> {
+    await context.siyuan.av.removeUnusedAttributeViews();
+    return { success: true };
   }
 }
 
