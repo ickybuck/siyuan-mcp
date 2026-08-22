@@ -22,8 +22,7 @@ const CELL_VALUE_DESCRIPTION =
 
 const FIELD_TYPES_DESCRIPTION =
   'text, number, date, select, mSelect, url, email, phone, mAsset, template, created, updated, checkbox, relation, rollup, lineNumber. ' +
-  'Note: relation and rollup fields are created without their target configuration and are not usable until wired up, ' +
-  'which this server cannot yet do.';
+  'Note: relation and rollup fields are created inert and must then be wired up with configure_relation_field / configure_rollup_field before they work.';
 
 const BLOCKID_NOOP_WARNING =
   'Only takes effect on a database embedded in a document (has a real block_id from embed_database). ' +
@@ -142,6 +141,74 @@ An unknown field ID causes SiYuan to reject the whole batch, so this tool checks
       chunkSize: args.chunk_size,
     });
     return { row_count: r.rowCount, chunks: r.chunks };
+  }
+}
+
+const CALC_OPERATORS = [
+  'Count all', 'Count values', 'Count unique values', 'Count empty', 'Count not empty',
+  'Percent empty', 'Percent not empty', 'Percent unique values', 'Unique values',
+  'Sum', 'Average', 'Median', 'Min', 'Max', 'Range',
+  'Earliest', 'Latest', 'Checked', 'Unchecked', 'Percent checked', 'Percent unchecked',
+];
+
+/**
+ * 配置关联字段
+ */
+export class ConfigureRelationFieldHandler extends BaseToolHandler<
+  { av_id: string; key_id: string; target_av_id: string; field_name: string; two_way?: boolean; back_field_name?: string },
+  { success: boolean; back_key_id?: string }
+> {
+  readonly name = 'configure_relation_field';
+  readonly description = 'Point a relation field at the database it relates to. This is REQUIRED after creating a field of type "relation" — add_database_field creates it with no target, and until it is configured the field exists but relates to nothing and cannot hold values. When two_way is true, a matching back-relation field is created in the target database and its new field ID is returned. Once configured, write relation values as an array of target row IDs, e.g. ["20260101120000-abc1234"].';
+  readonly inputSchema: JSONSchema = {
+    type: 'object',
+    properties: {
+      av_id: { type: 'string', description: 'Database containing the relation field' },
+      key_id: { type: 'string', description: 'The relation field ID to configure' },
+      target_av_id: { type: 'string', description: 'Database this field should relate to. May be the same database for a self-relation.' },
+      field_name: { type: 'string', description: 'Name for the relation field. Required — the kernel overwrites the field name with this value, so passing an empty string blanks it.' },
+      two_way: { type: 'boolean', description: 'Create a matching back-relation field in the target database. Defaults to false.' },
+      back_field_name: { type: 'string', description: 'Name of the back-relation field created in the target database. Only used when two_way is true.' },
+    },
+    required: ['av_id', 'key_id', 'target_av_id', 'field_name'],
+  };
+
+  async execute(args: any, context: ExecutionContext): Promise<{ success: boolean; back_key_id?: string }> {
+    const r = await context.siyuan.av.configureRelationField(args.av_id, args.key_id, args.target_av_id, {
+      fieldName: args.field_name,
+      twoWay: args.two_way,
+      backFieldName: args.back_field_name,
+    });
+    return { success: true, ...(r.backKeyID ? { back_key_id: r.backKeyID } : {}) };
+  }
+}
+
+/**
+ * 配置汇总字段
+ */
+export class ConfigureRollupFieldHandler extends BaseToolHandler<
+  { av_id: string; rollup_key_id: string; relation_key_id: string; target_key_id: string; calc?: string },
+  { success: boolean }
+> {
+  readonly name = 'configure_rollup_field';
+  readonly description = `Configure a rollup field so it summarises a field from related rows. REQUIRED after creating a field of type "rollup", which is otherwise inert. The relation field it builds on must already be configured with configure_relation_field first. calc must be one of: ${CALC_OPERATORS.join(', ')}. Rollup values are computed by SiYuan and cannot be written directly.`;
+  readonly inputSchema: JSONSchema = {
+    type: 'object',
+    properties: {
+      av_id: { type: 'string', description: 'Database containing the rollup field' },
+      rollup_key_id: { type: 'string', description: 'The rollup field ID to configure' },
+      relation_key_id: { type: 'string', description: 'The already-configured relation field this rollup follows' },
+      target_key_id: { type: 'string', description: 'Field ID in the related database whose values are summarised' },
+      calc: { type: 'string', description: 'How to aggregate. Defaults to "Count all".', enum: CALC_OPERATORS },
+    },
+    required: ['av_id', 'rollup_key_id', 'relation_key_id', 'target_key_id'],
+  };
+
+  async execute(args: any, context: ExecutionContext): Promise<{ success: boolean }> {
+    await context.siyuan.av.configureRollupField(
+      args.av_id, args.rollup_key_id, args.relation_key_id, args.target_key_id, args.calc ?? 'Count all'
+    );
+    return { success: true };
   }
 }
 
