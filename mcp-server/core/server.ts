@@ -319,6 +319,10 @@ These fail without raising an error, so they are worth knowing rather than disco
 - **Unconfigured relation and rollup fields**, as above.
 - **select/mSelect option case-sensitivity**, as above — the whitespace half of this is now
   handled automatically, the case-folding half is not, deliberately.
+- **Changing a primary key's type, or changing another field to the primary-key type.**
+  \`update_database_field\` refuses this itself with a clear error before contacting SiYuan,
+  precisely because the kernel's own refusal is silent — it reports success and changes nothing,
+  with no way to detect that from the response.
 - **The SQL index lags writes by one to two seconds.** A document created a moment ago may not
   appear in \`get_document_tree\` yet.
 - **Grouping hides rows.** A grouped view can report \`rowCount\` above zero while returning an

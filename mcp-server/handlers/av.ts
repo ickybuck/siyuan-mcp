@@ -161,7 +161,7 @@ export class UpdateDatabaseFieldHandler extends BaseToolHandler<
   { success: boolean }
 > {
   readonly name = 'update_database_field';
-  readonly description = `Rename a field, or change its type, without discarding its existing data — the missing counterpart to add_database_field/remove_database_field, which can only add or discard-and-recreate. Works on the primary key too: you can rename SiYuan's default "Primary Key" to something meaningful. The primary key's TYPE cannot be changed (and no other field can be changed to the primary-key type) — SiYuan rejects that with a clear error. Omit name or type to leave that part unchanged. Field types: ${FIELD_TYPES_DESCRIPTION}`;
+  readonly description = `Rename a field, or change its type, without discarding its existing data — the missing counterpart to add_database_field/remove_database_field, which can only add or discard-and-recreate. Works on the primary key too: you can rename SiYuan's default "Primary Key" to something meaningful. The primary key's TYPE cannot be changed, and no other field can be changed to the primary-key type — this tool rejects that itself with a clear error before contacting SiYuan, because the kernel's own rejection of it is silent (reports success, changes nothing, with no way to detect that from the response). Omit name or type to leave that part unchanged. Field types: ${FIELD_TYPES_DESCRIPTION}`;
   readonly inputSchema: JSONSchema = {
     type: 'object',
     properties: {
