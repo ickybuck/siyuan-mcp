@@ -13,6 +13,7 @@ export class CreateSnapshotHandler extends BaseToolHandler<
   { success: boolean; memo: string; message: string }
 > {
   readonly name = 'create_snapshot';
+  readonly annotations = { readOnlyHint: false, destructiveHint: false } as const;
   readonly description = 'Create a snapshot to backup all notes in SiYuan workspace. Essential before bulk operations to enable rollback if needed';
   readonly inputSchema: JSONSchema = {
     type: 'object',
@@ -45,6 +46,7 @@ export class ListSnapshotsHandler extends BaseToolHandler<
   { snapshots: any[]; pageCount: number; totalCount: number }
 > {
   readonly name = 'list_snapshots';
+  readonly annotations = { readOnlyHint: true } as const;
   readonly description = 'List available snapshots of your SiYuan notes workspace with pagination. Shows snapshot creation time and description';
   readonly inputSchema: JSONSchema = {
     type: 'object',
@@ -73,6 +75,7 @@ export class RollbackSnapshotHandler extends BaseToolHandler<
   { success: boolean; snapshot_id: string; message: string }
 > {
   readonly name = 'rollback_to_snapshot';
+  readonly annotations = { readOnlyHint: false, destructiveHint: true } as const;
   readonly description = 'Restore your SiYuan notes workspace to a previous snapshot state. Use this to recover from accidental changes or deletions';
   readonly inputSchema: JSONSchema = {
     type: 'object',

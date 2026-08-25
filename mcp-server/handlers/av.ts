@@ -39,6 +39,7 @@ export class CreateDatabaseHandler extends BaseToolHandler<
   any
 > {
   readonly name = 'create_database';
+  readonly annotations = { readOnlyHint: false, destructiveHint: false } as const;
   readonly description = `Create a new SiYuan database (attribute view), optionally with its whole field schema in one call. Not yet embedded in any document — call embed_database afterward, which is required before filters, sorts, grouping or layout changes take effect. Always table layout with one primary-key column, placed first in the column order. A default Select column is created by SiYuan and removed automatically unless keep_default_select is set. The primary key is named "Primary Key" — rename it with update_database_field if needed. Field types: ${FIELD_TYPES_DESCRIPTION}`;
   readonly inputSchema: JSONSchema = {
     type: 'object',
@@ -84,6 +85,7 @@ export class AddDatabaseFieldsHandler extends BaseToolHandler<
   { fields: Record<string, string> }
 > {
   readonly name = 'add_database_fields';
+  readonly annotations = { readOnlyHint: false, destructiveHint: false } as const;
   readonly description = `Add several fields (columns) to an existing SiYuan database in one call, in the order given. Returns a map of field name to new field ID. Field types: ${FIELD_TYPES_DESCRIPTION}`;
   readonly inputSchema: JSONSchema = {
     type: 'object',
@@ -119,6 +121,7 @@ export class AddDatabaseRowsWithValuesHandler extends BaseToolHandler<
   { row_count: number; chunks: number }
 > {
   readonly name = 'add_database_rows_with_values';
+  readonly annotations = { readOnlyHint: false, destructiveHint: false } as const;
   readonly description = `Create detached rows AND set all their cell values in one call — the tool to use for bulk import. Each row is an object mapping field ID to value, including the primary-key field. This replaces the create-then-render-then-set-each-cell sequence: 100 rows of 10 fields is one call here versus roughly 1,002 otherwise. ${CELL_VALUE_DESCRIPTION}
 RETRY SAFETY, verified against the kernel: a chunk is atomic, so if it fails nothing in it was written and it is safe to send again. But a chunk that SUCCEEDS and is sent again creates duplicate rows. After a timeout or any uncertain failure, do not blindly retry — either read the database back first, or use item_id. Giving each row an "item_id" pins its row ID, and re-sending a row with an id that already exists updates it instead of duplicating, which makes an import safely resumable. item_id must be 14 digits, a hyphen, then 7 lowercase alphanumerics; derive it from something stable in the source data (deriveItemId in the library helps with this).
 An unknown field ID causes SiYuan to reject the whole batch, so this tool checks IDs up front and names the offender. Rows are chunked (default 100, confirmed working up to at least 300 in a single call) because the kernel has historically been unstable under very large or rapid writes. Take a snapshot with create_snapshot before a large import. Rows created this way are detached: they live only in the database and are not bound to document blocks.
@@ -161,6 +164,7 @@ export class UpdateDatabaseFieldHandler extends BaseToolHandler<
   { success: boolean }
 > {
   readonly name = 'update_database_field';
+  readonly annotations = { readOnlyHint: false, destructiveHint: true } as const;
   readonly description = `Rename a field, or change its type, without discarding its existing data — the missing counterpart to add_database_field/remove_database_field, which can only add or discard-and-recreate. Works on the primary key too: you can rename SiYuan's default "Primary Key" to something meaningful. The primary key's TYPE cannot be changed, and no other field can be changed to the primary-key type — this tool rejects that itself with a clear error before contacting SiYuan, because the kernel's own rejection of it is silent (reports success, changes nothing, with no way to detect that from the response). Omit name or type to leave that part unchanged. Field types: ${FIELD_TYPES_DESCRIPTION}`;
   readonly inputSchema: JSONSchema = {
     type: 'object',
@@ -187,6 +191,7 @@ export class ConfigureSelectOptionsHandler extends BaseToolHandler<
   { success: boolean }
 > {
   readonly name = 'configure_select_options';
+  readonly annotations = { readOnlyHint: false, destructiveHint: false } as const;
   readonly description = 'Explicitly set the options on a select or mSelect field: name, colour, and description. Existing options with a matching name are updated (colour/description); others are added. Options not in the list are left alone, not removed. Matching is exact — same case-sensitivity and whitespace rules as writing a cell value, so an option declared here must be typed identically wherever it is written. Use this to fix the "every implicitly-created option is the same colour" problem (colours default to a 1-14 round-robin here if omitted, rather than SiYuan\'s fixed colour for auto-created options), or to pre-seed a known option set before a bulk import that uses validate_options.';
   readonly inputSchema: JSONSchema = {
     type: 'object',
@@ -224,6 +229,7 @@ export class GetNextSequenceValueHandler extends BaseToolHandler<
   { next_value: number }
 > {
   readonly name = 'get_next_sequence_value';
+  readonly annotations = { readOnlyHint: true } as const;
   readonly description = 'Suggest the next value for a manually-maintained sequential ID field (e.g. a "BL-#" or "PF-#" style number column), since SiYuan has no auto-increment field type. Reads the current maximum value of the given number field across every row and returns max + 1 (1 if the database is empty). This is a convenience read, not an atomic counter — two near-simultaneous calls can return the same value, so it does not guarantee uniqueness under concurrent writers. It replaces manually scanning for the highest existing number, not a real auto-increment; verify uniqueness after writing if that matters.';
   readonly inputSchema: JSONSchema = {
     type: 'object',
@@ -254,6 +260,7 @@ export class ConfigureRelationFieldHandler extends BaseToolHandler<
   { success: boolean; back_key_id?: string }
 > {
   readonly name = 'configure_relation_field';
+  readonly annotations = { readOnlyHint: false, destructiveHint: false } as const;
   readonly description = 'Point a relation field at the database it relates to. This is REQUIRED after creating a field of type "relation" — add_database_field creates it with no target, and until it is configured the field exists but relates to nothing and cannot hold values. When two_way is true, a matching back-relation field is created in the target database and its new field ID is returned. Once configured, write relation values as an array of target row IDs, e.g. ["20260101120000-abc1234"].';
   readonly inputSchema: JSONSchema = {
     type: 'object',
@@ -286,6 +293,7 @@ export class ConfigureRollupFieldHandler extends BaseToolHandler<
   { success: boolean }
 > {
   readonly name = 'configure_rollup_field';
+  readonly annotations = { readOnlyHint: false, destructiveHint: false } as const;
   readonly description = `Configure a rollup field so it summarises a field from related rows. REQUIRED after creating a field of type "rollup", which is otherwise inert. The relation field it builds on must already be configured with configure_relation_field first. calc must be one of: ${CALC_OPERATORS.join(', ')}. Rollup values are computed by SiYuan and cannot be written directly.`;
   readonly inputSchema: JSONSchema = {
     type: 'object',
@@ -315,6 +323,7 @@ export class ResolveDatabaseIdsHandler extends BaseToolHandler<
   { item_ids?: string[]; block_ids?: string[] }
 > {
   readonly name = 'resolve_database_ids';
+  readonly annotations = { readOnlyHint: true } as const;
   readonly description = 'Translate between a database\'s row IDs and the document block IDs its rows are bound to. These are different identifiers and confusing them is a common source of silent data loss: writing a cell with a block ID where a row ID belongs stores an orphan value that never appears. Pass item_ids to get the bound block IDs, or block_ids to get the row IDs. Detached rows have no bound block and come back empty.';
   readonly inputSchema: JSONSchema = {
     type: 'object',
@@ -353,6 +362,7 @@ export class ReplaceDatabaseBlocksHandler extends BaseToolHandler<
   { replaced: number }
 > {
   readonly name = 'replace_database_blocks';
+  readonly annotations = { readOnlyHint: false, destructiveHint: true } as const;
   readonly description = 'Re-point database rows from one set of bound blocks to another, given a map of old block ID to new block ID. Use this when the documents a database refers to have been recreated — a re-import, for instance — and the rows would otherwise still point at the old, now-deleted blocks. This changes which block each row is bound to; it does not alter cell values.';
   readonly inputSchema: JSONSchema = {
     type: 'object',
@@ -380,6 +390,7 @@ export class ReplaceDatabaseBlocksHandler extends BaseToolHandler<
  */
 export class ListUnusedDatabasesHandler extends BaseToolHandler<Record<string, never>, any[]> {
   readonly name = 'list_unused_databases';
+  readonly annotations = { readOnlyHint: true } as const;
   readonly description = 'List databases that are not embedded in any document. A failed or abandoned import leaves these behind, where they are invisible in the UI but still occupying the workspace. Use before remove_unused_databases to see what would be deleted.';
   readonly inputSchema: JSONSchema = { type: 'object', properties: {}, required: [] };
 
@@ -393,6 +404,7 @@ export class ListUnusedDatabasesHandler extends BaseToolHandler<Record<string, n
  */
 export class RemoveUnusedDatabasesHandler extends BaseToolHandler<Record<string, never>, { success: boolean }> {
   readonly name = 'remove_unused_databases';
+  readonly annotations = { readOnlyHint: false, destructiveHint: true } as const;
   readonly description = 'Permanently delete every database not embedded in any document. Irreversible — run list_unused_databases first to see what will go, and create_snapshot before running it. Note that a database you just created but have not yet embedded counts as unused, so do not run this in the middle of building one.';
   readonly inputSchema: JSONSchema = { type: 'object', properties: {}, required: [] };
 
@@ -410,6 +422,7 @@ export class SetDatabaseCellsHandler extends BaseToolHandler<
   { updated: number; chunks: number }
 > {
   readonly name = 'set_database_cells';
+  readonly annotations = { readOnlyHint: false, destructiveHint: true } as const;
   readonly description = `Set many cell values on EXISTING rows in one call. Use add_database_rows_with_values when creating rows; use this to correct or update rows that already exist. ${CELL_VALUE_DESCRIPTION} item_id is the rendered row id from render_database (rows[].id / cards[].id), which is NOT the same as the bound block ID — passing the wrong one stores an orphan value that never appears in the cell.`;
   readonly inputSchema: JSONSchema = {
     type: 'object',
@@ -447,6 +460,7 @@ export class EmbedDatabaseHandler extends BaseToolHandler<
   { block_id: string }
 > {
   readonly name = 'embed_database';
+  readonly annotations = { readOnlyHint: false, destructiveHint: false } as const;
   readonly description = 'Embed an existing SiYuan database into a document by inserting a database block. Provide exactly one anchor: next_id, previous_id, or parent_id (priority in that order if multiple given). Once embedded, the returned block_id is required for set_database_filters, set_database_sorts, set_database_group, and change_database_layout.';
   readonly inputSchema: JSONSchema = {
     type: 'object',
@@ -494,6 +508,7 @@ export class RenderDatabaseHandler extends BaseToolHandler<
   any
 > {
   readonly name = 'render_database';
+  readonly annotations = { readOnlyHint: true } as const;
   readonly description = 'Read a database\'s computed rows/cards for one view, with pagination. This is the primary read endpoint — use it to discover row IDs (rows[].id for table, cards[].id for gallery/kanban) needed for set_database_cell, add/remove rows, etc. Omit block_id when reading a detached database.';
   readonly inputSchema: JSONSchema = {
     type: 'object',
@@ -529,6 +544,7 @@ export class RenderDatabaseHandler extends BaseToolHandler<
  */
 export class GetDatabaseHandler extends BaseToolHandler<{ av_id: string }, any> {
   readonly name = 'get_database';
+  readonly annotations = { readOnlyHint: true } as const;
   readonly description = 'Get a SiYuan database\'s raw definition: fields (keyValues), field ordering, and every view\'s raw layout config and item ordering. Does not return computed/paginated rows — use render_database for that.';
   readonly inputSchema: JSONSchema = {
     type: 'object',
@@ -551,6 +567,7 @@ export class GetDatabasePrimaryKeyValuesHandler extends BaseToolHandler<
   any
 > {
   readonly name = 'get_database_primary_key_values';
+  readonly annotations = { readOnlyHint: true } as const;
   readonly description = 'List a database\'s primary-key (row) values, optionally filtered by keyword, sorted by last-updated descending, paginated.';
   readonly inputSchema: JSONSchema = {
     type: 'object',
@@ -581,6 +598,7 @@ export class SearchDatabasesHandler extends BaseToolHandler<
   any
 > {
   readonly name = 'search_databases';
+  readonly annotations = { readOnlyHint: true } as const;
   readonly description = 'Search SiYuan databases by name.';
   readonly inputSchema: JSONSchema = {
     type: 'object',
@@ -605,6 +623,7 @@ export class SetDatabaseCellHandler extends BaseToolHandler<
   any
 > {
   readonly name = 'set_database_cell';
+  readonly annotations = { readOnlyHint: false, destructiveHint: true } as const;
   readonly description = `Set the value of a single cell (one field of one row) in a SiYuan database. ${CELL_VALUE_DESCRIPTION} item_id must be the rendered row/card id from render_database (rows[].id / cards[].id) — it is NOT always the same as the bound block ID; passing the wrong ID stores an orphan value that never appears in the rendered cell.`;
   readonly inputSchema: JSONSchema = {
     type: 'object',
@@ -638,6 +657,7 @@ export class AddDatabaseRowsHandler extends BaseToolHandler<
   { success: boolean }
 > {
   readonly name = 'add_database_rows';
+  readonly annotations = { readOnlyHint: false, destructiveHint: false } as const;
   readonly description = 'Add one or more rows to a SiYuan database. Each row either binds an existing block (is_detached: false, with id set to that block\'s ID) or is a detached row that lives only inside the database (is_detached: true, with content as its primary-key text). Returns no row IDs — call render_database afterward to get them before setting cell values.';
   readonly inputSchema: JSONSchema = {
     type: 'object',
@@ -692,6 +712,7 @@ export class RemoveDatabaseRowsHandler extends BaseToolHandler<
   { success: boolean }
 > {
   readonly name = 'remove_database_rows';
+  readonly annotations = { readOnlyHint: false, destructiveHint: true } as const;
   readonly description = 'Remove one or more rows from a SiYuan database, by row ID (render_database rows[].id / cards[].id). Detached rows are deleted outright; bound blocks are only unbound from the database — the underlying document block is not deleted.';
   readonly inputSchema: JSONSchema = {
     type: 'object',
@@ -716,6 +737,7 @@ export class ChangeDatabaseLayoutHandler extends BaseToolHandler<
   any
 > {
   readonly name = 'change_database_layout';
+  readonly annotations = { readOnlyHint: false, destructiveHint: false } as const;
   readonly description = `Switch a SiYuan database view between table, gallery, and kanban layout. Returns the re-rendered view (same shape as render_database). ${BLOCKID_NOOP_WARNING}`;
   readonly inputSchema: JSONSchema = {
     type: 'object',
@@ -748,6 +770,7 @@ export class SetDatabaseGroupHandler extends BaseToolHandler<
   any
 > {
   readonly name = 'set_database_group';
+  readonly annotations = { readOnlyHint: false, destructiveHint: false } as const;
   readonly description = `Set or clear the grouping rule for a kanban database view. Pass an empty field to remove grouping. Returns the re-rendered view (same shape as render_database). ${BLOCKID_NOOP_WARNING}`;
   readonly inputSchema: JSONSchema = {
     type: 'object',
@@ -795,6 +818,7 @@ export class GetDatabaseFilterSortHandler extends BaseToolHandler<
   { filters: any[]; sorts: any[] }
 > {
   readonly name = 'get_database_filter_sort';
+  readonly annotations = { readOnlyHint: true } as const;
   readonly description = 'Get the current filter and sort rules of a SiYuan database view.';
   readonly inputSchema: JSONSchema = {
     type: 'object',
@@ -823,6 +847,7 @@ export class SetDatabaseFiltersHandler extends BaseToolHandler<
   { success: boolean }
 > {
   readonly name = 'set_database_filters';
+  readonly annotations = { readOnlyHint: false, destructiveHint: false } as const;
   readonly description = `Replace a SiYuan database view's entire filter set. Pass an empty array to clear all filters. ${FILTER_DESCRIPTION} ${BLOCKID_NOOP_WARNING}`;
   readonly inputSchema: JSONSchema = {
     type: 'object',
@@ -848,6 +873,7 @@ export class SetDatabaseSortsHandler extends BaseToolHandler<
   { success: boolean }
 > {
   readonly name = 'set_database_sorts';
+  readonly annotations = { readOnlyHint: false, destructiveHint: false } as const;
   readonly description = `Replace a SiYuan database view's entire sort set. Pass an empty array to clear all sorts. ${BLOCKID_NOOP_WARNING}`;
   readonly inputSchema: JSONSchema = {
     type: 'object',
@@ -884,6 +910,7 @@ export class AddDatabaseFieldHandler extends BaseToolHandler<
   { key_id: string }
 > {
   readonly name = 'add_database_field';
+  readonly annotations = { readOnlyHint: false, destructiveHint: false } as const;
   readonly description = `Add a new field (column) to a SiYuan database, appended to every view. The block/primary-key type cannot be added this way — it's built in. Valid key_type values: ${KEY_TYPES.join(', ')}.`;
   readonly inputSchema: JSONSchema = {
     type: 'object',
@@ -914,6 +941,7 @@ export class RemoveDatabaseFieldHandler extends BaseToolHandler<
   { success: boolean }
 > {
   readonly name = 'remove_database_field';
+  readonly annotations = { readOnlyHint: false, destructiveHint: true } as const;
   readonly description = 'Remove a field (column) from a SiYuan database, along with all of its values.';
   readonly inputSchema: JSONSchema = {
     type: 'object',
@@ -939,6 +967,7 @@ export class SortDatabaseFieldHandler extends BaseToolHandler<
   { success: boolean }
 > {
   readonly name = 'sort_database_field';
+  readonly annotations = { readOnlyHint: false, destructiveHint: false } as const;
   readonly description = 'Reorder a field (column) globally in a SiYuan database, moving it to the position after previous_key_id. Affects every view. Omit previous_key_id to move it to the first position.';
   readonly inputSchema: JSONSchema = {
     type: 'object',
@@ -964,6 +993,7 @@ export class SortDatabaseViewFieldHandler extends BaseToolHandler<
   { success: boolean }
 > {
   readonly name = 'sort_database_view_field';
+  readonly annotations = { readOnlyHint: false, destructiveHint: false } as const;
   readonly description = 'Reorder a field (column) within a single database view\'s layout (e.g. one table\'s column order), without changing the global field ordering. Omit previous_key_id to move it to the first position.';
   readonly inputSchema: JSONSchema = {
     type: 'object',

@@ -10,6 +10,7 @@ import type { ExecutionContext, JSONSchema } from '../core/types.js';
  */
 export class GetBlockKramdownHandler extends BaseToolHandler<{ block_id: string }, string> {
   readonly name = 'get_block_kramdown';
+  readonly annotations = { readOnlyHint: true } as const;
   readonly description = 'Get the raw Kramdown content of a single block in SiYuan, including its IAL attributes. Use this when you need the exact source (not just rendered markdown) of one block, e.g. before an update_block call.';
   readonly inputSchema: JSONSchema = {
     type: 'object',
@@ -35,6 +36,7 @@ export class UpdateBlockHandler extends BaseToolHandler<
   { success: boolean; block_id: string }
 > {
   readonly name = 'update_block';
+  readonly annotations = { readOnlyHint: false, destructiveHint: true } as const;
   readonly description = 'Replace the content of a single block in SiYuan with new markdown content, in place. Unlike update_document, this edits only the target block and leaves the rest of the note untouched — use it for single-paragraph edits in large notes.';
   readonly inputSchema: JSONSchema = {
     type: 'object',
@@ -65,6 +67,7 @@ export class AppendBlockHandler extends BaseToolHandler<
   string
 > {
   readonly name = 'append_block';
+  readonly annotations = { readOnlyHint: false, destructiveHint: false } as const;
   readonly description = 'Append a new block with markdown content as the last child of a parent block in SiYuan. Returns the new block ID.';
   readonly inputSchema: JSONSchema = {
     type: 'object',
@@ -94,6 +97,7 @@ export class InsertBlockBeforeHandler extends BaseToolHandler<
   string
 > {
   readonly name = 'insert_block_before';
+  readonly annotations = { readOnlyHint: false, destructiveHint: false } as const;
   readonly description = 'Insert a new block with markdown content immediately before a reference block in SiYuan. Returns the new block ID.';
   readonly inputSchema: JSONSchema = {
     type: 'object',
@@ -123,6 +127,7 @@ export class InsertBlockAfterHandler extends BaseToolHandler<
   string
 > {
   readonly name = 'insert_block_after';
+  readonly annotations = { readOnlyHint: false, destructiveHint: false } as const;
   readonly description = 'Insert a new block with markdown content immediately after a reference block in SiYuan. Returns the new block ID.';
   readonly inputSchema: JSONSchema = {
     type: 'object',
@@ -152,6 +157,7 @@ export class DeleteBlockHandler extends BaseToolHandler<
   { success: boolean; block_id: string }
 > {
   readonly name = 'delete_block';
+  readonly annotations = { readOnlyHint: false, destructiveHint: true } as const;
   readonly description = 'Delete a single block from SiYuan by ID.';
   readonly inputSchema: JSONSchema = {
     type: 'object',
@@ -178,6 +184,7 @@ export class MoveBlockHandler extends BaseToolHandler<
   { success: boolean; block_id: string }
 > {
   readonly name = 'move_block';
+  readonly annotations = { readOnlyHint: false, destructiveHint: false } as const;
   readonly description = 'Move an existing block to a new position in SiYuan. Provide previous_id to place it directly after that block, and/or parent_id to reparent it; at least one must be given.';
   readonly inputSchema: JSONSchema = {
     type: 'object',
@@ -215,6 +222,7 @@ export class GetChildBlocksHandler extends BaseToolHandler<
   Array<{ id: string; type: string; subType?: string }>
 > {
   readonly name = 'get_child_blocks';
+  readonly annotations = { readOnlyHint: true } as const;
   readonly description = 'List the direct child blocks of a block or document in SiYuan (id, type, subType). Use this to find block IDs to target with update_block, insert_block_before/after, move_block, etc.';
   readonly inputSchema: JSONSchema = {
     type: 'object',
@@ -240,6 +248,7 @@ export class PrependBlockHandler extends BaseToolHandler<
   string
 > {
   readonly name = 'prepend_block';
+  readonly annotations = { readOnlyHint: false, destructiveHint: false } as const;
   readonly description = 'Insert a new block with markdown content as the first child of a parent block in SiYuan. Returns the new block ID.';
   readonly inputSchema: JSONSchema = {
     type: 'object',
@@ -269,6 +278,7 @@ export class FoldBlockHandler extends BaseToolHandler<
   { success: boolean; block_id: string }
 > {
   readonly name = 'fold_block';
+  readonly annotations = { readOnlyHint: false, destructiveHint: false } as const;
   readonly description = 'Collapse (fold) a block in SiYuan so its children are hidden in the outliner UI. Content is unaffected — this only changes the UI-visible fold state.';
   readonly inputSchema: JSONSchema = {
     type: 'object',
@@ -295,6 +305,7 @@ export class UnfoldBlockHandler extends BaseToolHandler<
   { success: boolean; block_id: string }
 > {
   readonly name = 'unfold_block';
+  readonly annotations = { readOnlyHint: false, destructiveHint: false } as const;
   readonly description = 'Expand (unfold) a previously folded block in SiYuan so its children are visible again in the outliner UI.';
   readonly inputSchema: JSONSchema = {
     type: 'object',

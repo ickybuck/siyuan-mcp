@@ -13,6 +13,7 @@ export class ListAllTagsHandler extends BaseToolHandler<
   Array<{ label: string; document_count: number }>
 > {
   readonly name = 'list_all_tags';
+  readonly annotations = { readOnlyHint: true } as const;
   readonly description =
     'List all tags used across your SiYuan notes with usage counts. Useful for discovering how you organize your knowledge. Supports filtering by prefix and limiting by hierarchy depth';
   readonly inputSchema: JSONSchema = {
@@ -44,6 +45,7 @@ export class ReplaceTagHandler extends BaseToolHandler<
   boolean
 > {
   readonly name = 'batch_replace_tag';
+  readonly annotations = { readOnlyHint: false, destructiveHint: true } as const;
   readonly description =
     'Rename or remove a tag across all notes in SiYuan. Useful for reorganizing your knowledge base tags. Use empty string for new_tag to remove the tag entirely';
   readonly inputSchema: JSONSchema = {

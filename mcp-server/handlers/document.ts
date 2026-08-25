@@ -11,6 +11,7 @@ import type { DocTreeNodeResponse } from '../../src/types/index.js';
  */
 export class GetDocumentContentHandler extends BaseToolHandler<{ document_id: string; offset?: number; limit?: number }, string> {
   readonly name = 'get_document_content';
+  readonly annotations = { readOnlyHint: true } as const;
   readonly description = 'Read the markdown content of a note in SiYuan. Returns the full note content in markdown format, with optional pagination support';
   readonly inputSchema: JSONSchema = {
     type: 'object',
@@ -74,6 +75,7 @@ export class CreateDocumentHandler extends BaseToolHandler<
   string
 > {
   readonly name = 'create_document';
+  readonly annotations = { readOnlyHint: false, destructiveHint: false } as const;
   readonly description = 'Create a new note document in a SiYuan notebook with markdown content';
   readonly inputSchema: JSONSchema = {
     type: 'object',
@@ -107,6 +109,7 @@ export class AppendToDocumentHandler extends BaseToolHandler<
   string
 > {
   readonly name = 'append_to_document';
+  readonly annotations = { readOnlyHint: false, destructiveHint: false } as const;
   readonly description = 'Append markdown content to the end of an existing note in SiYuan';
   readonly inputSchema: JSONSchema = {
     type: 'object',
@@ -136,6 +139,7 @@ export class UpdateDocumentHandler extends BaseToolHandler<
   { success: boolean; document_id: string }
 > {
   readonly name = 'update_document';
+  readonly annotations = { readOnlyHint: false, destructiveHint: true } as const;
   readonly description = 'Replace the entire content of a note in SiYuan with new markdown content (overwrites existing content)';
   readonly inputSchema: JSONSchema = {
     type: 'object',
@@ -166,6 +170,7 @@ export class AppendToDailyNoteHandler extends BaseToolHandler<
   string
 > {
   readonly name = 'append_to_daily_note';
+  readonly annotations = { readOnlyHint: false, destructiveHint: false } as const;
   readonly description = "Append markdown content to today's daily note in SiYuan (automatically creates the daily note if it doesn't exist)";
   readonly inputSchema: JSONSchema = {
     type: 'object',
@@ -195,6 +200,7 @@ export class MoveDocumentsHandler extends BaseToolHandler<
   { success: boolean; moved_count: number; from_ids: string[]; to_parent_id?: string; to_notebook_root?: string }
 > {
   readonly name = 'move_documents';
+  readonly annotations = { readOnlyHint: false, destructiveHint: false } as const;
   readonly description = 'Move one or more notes to a new location in SiYuan. Provide EXACTLY ONE destination: either to_parent_id (to nest notes under a parent note) OR to_notebook_root (to move notes to notebook top level).';
   readonly inputSchema: JSONSchema = {
     type: 'object',
@@ -276,6 +282,7 @@ export class GetDocumentTreeHandler extends BaseToolHandler<
   DocTreeNodeResponse[]
 > {
   readonly name = 'get_document_tree';
+  readonly annotations = { readOnlyHint: true } as const;
   readonly description = 'Get the hierarchical structure of notes in SiYuan with specified depth. Returns the note tree starting from a notebook or parent note. Relies on the SQL index, which lags block writes by roughly 1-2 seconds — a just-created document may not appear yet.';
   readonly inputSchema: JSONSchema = {
     type: 'object',
@@ -313,6 +320,7 @@ export class RemoveDocumentHandler extends BaseToolHandler<
   { success: boolean; document_id: string }
 > {
   readonly name = 'remove_document';
+  readonly annotations = { readOnlyHint: false, destructiveHint: true } as const;
   readonly description = 'Permanently delete a note document in SiYuan by ID, including all its child documents and blocks.';
   readonly inputSchema: JSONSchema = {
     type: 'object',
@@ -339,6 +347,7 @@ export class RenameDocumentHandler extends BaseToolHandler<
   { success: boolean; document_id: string; title: string }
 > {
   readonly name = 'rename_document';
+  readonly annotations = { readOnlyHint: false, destructiveHint: false } as const;
   readonly description = 'Rename a note document in SiYuan by ID.';
   readonly inputSchema: JSONSchema = {
     type: 'object',
@@ -369,6 +378,7 @@ export class SetDocSortModeHandler extends BaseToolHandler<
   { success: boolean; id: string }
 > {
   readonly name = 'set_document_sort_mode';
+  readonly annotations = { readOnlyHint: false, destructiveHint: false } as const;
   readonly description = `Set how a document's children are sorted in the SiYuan outliner. Document ID only — for notebook-level sort mode, use the notebook config tools instead. ${SORT_MODE_DESCRIPTION} To manually reorder items, first set sort_mode to 6 (custom), then call set_sort.`;
   readonly inputSchema: JSONSchema = {
     type: 'object',
@@ -402,6 +412,7 @@ export class SetSortHandler extends BaseToolHandler<
   { success: boolean }
 > {
   readonly name = 'set_sort';
+  readonly annotations = { readOnlyHint: false, destructiveHint: false } as const;
   readonly description = 'Set the manual sort order of notebooks and/or documents in SiYuan by assigning each ID a sort number (lower sorts first; array order does not matter). Only takes visible effect on items whose sort_mode is 6 (custom) — set that first with set_document_sort_mode if needed. doc_sorts entries must belong to an opened, unlocked notebook; notebook root document IDs are not accepted. At least one of notebook_sorts or doc_sorts must be non-empty.';
   readonly inputSchema: JSONSchema = {
     type: 'object',

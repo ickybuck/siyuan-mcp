@@ -77,6 +77,7 @@ export class SiyuanMCPServer {
         name: handler.name,
         description: handler.description,
         inputSchema: handler.inputSchema,
+        annotations: handler.annotations,
       }));
 
       this.logger.debug(`Listing ${tools.length} tools`);

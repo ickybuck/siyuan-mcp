@@ -41,6 +41,22 @@ export interface Logger {
 }
 
 /**
+ * MCP tool annotation hints — advisory metadata clients use to group and
+ * gate tools (e.g. Claude's connector permission UI splits Read-only vs
+ * Write/delete based on readOnlyHint/destructiveHint).
+ * https://modelcontextprotocol.io — ToolAnnotations
+ */
+export interface ToolAnnotations {
+  /** If true, the tool does not modify its environment. */
+  readonly readOnlyHint: boolean;
+  /**
+   * If true, the tool may perform destructive/overwriting updates.
+   * Only meaningful when readOnlyHint is false.
+   */
+  readonly destructiveHint?: boolean;
+}
+
+/**
  * 工具处理器接口
  */
 export interface ToolHandler<TArgs = any, TResult = any> {
@@ -52,6 +68,9 @@ export interface ToolHandler<TArgs = any, TResult = any> {
 
   /** 输入参数的 JSON Schema */
   readonly inputSchema: JSONSchema;
+
+  /** 工具注解（只读/破坏性提示，供客户端权限 UI 分组使用） */
+  readonly annotations: ToolAnnotations;
 
   /**
    * 执行工具
@@ -111,6 +130,7 @@ export interface MCPTool {
   name: string;
   description: string;
   inputSchema: JSONSchema;
+  annotations?: ToolAnnotations;
 }
 
 /**

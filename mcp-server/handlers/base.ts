@@ -2,7 +2,7 @@
  * 工具处理器基类
  */
 
-import type { ToolHandler, JSONSchema, ExecutionContext } from '../core/types.js';
+import type { ToolHandler, ToolAnnotations, JSONSchema, ExecutionContext } from '../core/types.js';
 
 export abstract class BaseToolHandler<TArgs = any, TResult = any>
   implements ToolHandler<TArgs, TResult>
@@ -10,6 +10,7 @@ export abstract class BaseToolHandler<TArgs = any, TResult = any>
   abstract readonly name: string;
   abstract readonly description: string;
   abstract readonly inputSchema: JSONSchema;
+  abstract readonly annotations: ToolAnnotations;
 
   abstract execute(args: TArgs, context: ExecutionContext): Promise<TResult>;
 

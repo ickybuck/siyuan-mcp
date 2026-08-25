@@ -11,6 +11,7 @@ import type { NotebookResponse, SearchResultResponse } from '../../src/types/ind
  */
 export class ListNotebooksHandler extends BaseToolHandler<{}, NotebookResponse[]> {
   readonly name = 'list_notebooks';
+  readonly annotations = { readOnlyHint: true } as const;
   readonly description = 'List all notebooks in your SiYuan workspace. Notebooks are top-level containers for organizing your notes';
   readonly inputSchema: JSONSchema = {
     type: 'object',
@@ -30,6 +31,7 @@ export class GetRecentlyUpdatedDocumentsHandler extends BaseToolHandler<
   SearchResultResponse[]
 > {
   readonly name = 'get_recently_updated_documents';
+  readonly annotations = { readOnlyHint: true } as const;
   readonly description = 'Get recently modified notes in SiYuan, sorted by update time (most recent first). Useful for finding what you worked on recently';
   readonly inputSchema: JSONSchema = {
     type: 'object',
@@ -59,6 +61,7 @@ export class GetRecentlyUpdatedDocumentsHandler extends BaseToolHandler<
  */
 export class CreateNotebookHandler extends BaseToolHandler<{ name: string }, string> {
   readonly name = 'create_notebook';
+  readonly annotations = { readOnlyHint: false, destructiveHint: false } as const;
   readonly description = 'Create a new notebook in SiYuan with the specified name';
   readonly inputSchema: JSONSchema = {
     type: 'object',
