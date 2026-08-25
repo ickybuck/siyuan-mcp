@@ -84,7 +84,7 @@ export class CreateDocumentHandler extends BaseToolHandler<
       },
       path: {
         type: 'string',
-        description: 'Note path within the notebook (e.g., /folder/note-title)',
+        description: 'Note path within the notebook (e.g., /folder/note-title). The final segment becomes the note title. Pass raw text, not HTML-escaped — e.g. "&", not "&amp;". SiYuan does not decode entities, so an escaped ampersand ends up literally in the title. Em dashes, ®, and emoji all pass through correctly unescaped.',
       },
       content: {
         type: 'string',

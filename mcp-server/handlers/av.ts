@@ -14,15 +14,18 @@ const CELL_VALUE_DESCRIPTION =
   'Cell value in plain form — the field type determines how it is interpreted, so you do not need SiYuan\'s internal value structs. ' +
   'text: "some text" | number: 42 | date: "2026-05-25" or an ISO datetime or a millisecond timestamp | ' +
   'select: "Done" | mSelect: ["A","B"] | url/email/phone: "https://..." | checkbox: true | ' +
+  'relation: ["<target row id>", ...] | ' +
   'mAsset: ["https://example.com/img.png"]. ' +
-  'Dates given as YYYY-MM-DD are interpreted at midnight in the SiYuan instance\'s local timezone, which is what the UI displays — ' +
+  'Dates given as YYYY-MM-DD are interpreted at midnight in the SiYuan instance\'s local timezone, which is what the UI displays and renders with no time shown — ' +
   'passing a UTC midnight timestamp instead renders as the previous day in timezones west of UTC. ' +
+  'select/mSelect values are trimmed of leading/trailing whitespace, but NOT case-folded: "Done" and "done" become two separate options, silently, with no warning. ' +
   'Pass null or "" to clear a value. ' +
   'SiYuan\'s verbose Value structs (e.g. {"number":{"content":42,"isNotEmpty":true}}) are still accepted unchanged as an escape hatch.';
 
 const FIELD_TYPES_DESCRIPTION =
   'text, number, date, select, mSelect, url, email, phone, mAsset, template, created, updated, checkbox, relation, rollup, lineNumber. ' +
-  'Note: relation and rollup fields are created inert and must then be wired up with configure_relation_field / configure_rollup_field before they work.';
+  'Note: relation and rollup fields are created inert and must then be wired up with configure_relation_field / configure_rollup_field before they work. ' +
+  'select/mSelect fields have no way to declare their allowed options at creation — the first row written to one creates its options implicitly. Use configure_select_options afterward to set colours or pre-seed a known option set.';
 
 const BLOCKID_NOOP_WARNING =
   'Only takes effect on a database embedded in a document (has a real block_id from embed_database). ' +
@@ -36,7 +39,7 @@ export class CreateDatabaseHandler extends BaseToolHandler<
   any
 > {
   readonly name = 'create_database';
-  readonly description = `Create a new SiYuan database (attribute view), optionally with its whole field schema in one call. Not yet embedded in any document — call embed_database afterward, which is required before filters, sorts, grouping or layout changes take effect. Always table layout with one primary-key column. A default Select column is created by SiYuan and removed automatically unless keep_default_select is set. Field types: ${FIELD_TYPES_DESCRIPTION}`;
+  readonly description = `Create a new SiYuan database (attribute view), optionally with its whole field schema in one call. Not yet embedded in any document — call embed_database afterward, which is required before filters, sorts, grouping or layout changes take effect. Always table layout with one primary-key column, placed first in the column order. A default Select column is created by SiYuan and removed automatically unless keep_default_select is set. The primary key is named "Primary Key" — rename it with update_database_field if needed. Field types: ${FIELD_TYPES_DESCRIPTION}`;
   readonly inputSchema: JSONSchema = {
     type: 'object',
     properties: {
@@ -112,13 +115,14 @@ export class AddDatabaseFieldsHandler extends BaseToolHandler<
  * 批量创建行并同时写入值
  */
 export class AddDatabaseRowsWithValuesHandler extends BaseToolHandler<
-  { av_id: string; rows: Array<Record<string, any>>; chunk_size?: number },
+  { av_id: string; rows: Array<Record<string, any>>; chunk_size?: number; validate_options?: boolean },
   { row_count: number; chunks: number }
 > {
   readonly name = 'add_database_rows_with_values';
   readonly description = `Create detached rows AND set all their cell values in one call — the tool to use for bulk import. Each row is an object mapping field ID to value, including the primary-key field. This replaces the create-then-render-then-set-each-cell sequence: 100 rows of 10 fields is one call here versus roughly 1,002 otherwise. ${CELL_VALUE_DESCRIPTION}
-RETRY SAFETY, verified against the kernel: a chunk is atomic, so if it fails nothing in it was written and it is safe to send again. But a chunk that SUCCEEDS and is sent again creates duplicate rows. After a timeout or any uncertain failure, do not blindly retry — either read the database back first, or use item_id. Giving each row an "item_id" pins its row ID, and re-sending a row with an id that already exists updates it instead of duplicating, which makes an import safely resumable. item_id must be 14 digits, a hyphen, then 7 lowercase alphanumerics; derive it from something stable in the source data.
-An unknown field ID causes SiYuan to reject the whole batch, so this tool checks IDs up front and names the offender. Rows are chunked (default 100) because the kernel has historically been unstable under very large or rapid writes. Take a snapshot with create_snapshot before a large import. Rows created this way are detached: they live only in the database and are not bound to document blocks.`;
+RETRY SAFETY, verified against the kernel: a chunk is atomic, so if it fails nothing in it was written and it is safe to send again. But a chunk that SUCCEEDS and is sent again creates duplicate rows. After a timeout or any uncertain failure, do not blindly retry — either read the database back first, or use item_id. Giving each row an "item_id" pins its row ID, and re-sending a row with an id that already exists updates it instead of duplicating, which makes an import safely resumable. item_id must be 14 digits, a hyphen, then 7 lowercase alphanumerics; derive it from something stable in the source data (deriveItemId in the library helps with this).
+An unknown field ID causes SiYuan to reject the whole batch, so this tool checks IDs up front and names the offender. Rows are chunked (default 100, confirmed working up to at least 300 in a single call) because the kernel has historically been unstable under very large or rapid writes. Take a snapshot with create_snapshot before a large import. Rows created this way are detached: they live only in the database and are not bound to document blocks.
+select/mSelect values that don't match an existing option are silently created as new options — case-sensitive, whitespace-trimmed but otherwise unvalidated. Set validate_options to catch this instead of discovering it later as a near-duplicate option.`;
   readonly inputSchema: JSONSchema = {
     type: 'object',
     properties: {
@@ -132,6 +136,10 @@ An unknown field ID causes SiYuan to reject the whole batch, so this tool checks
         type: 'number',
         description: 'Rows per request. Defaults to 100. Lower it if the kernel struggles on very wide databases.',
       },
+      validate_options: {
+        type: 'boolean',
+        description: 'When true, reject the call up front if any select/mSelect value is not already an existing option for its field — instead of letting SiYuan silently create a new, possibly near-duplicate option. Pre-seed the allowed set with configure_select_options first. Defaults to false, since creating new options is often exactly what is wanted.',
+      },
     },
     required: ['av_id', 'rows'],
   };
@@ -139,8 +147,95 @@ An unknown field ID causes SiYuan to reject the whole batch, so this tool checks
   async execute(args: any, context: ExecutionContext): Promise<{ row_count: number; chunks: number }> {
     const r = await context.siyuan.av.appendDetachedRowsWithValues(args.av_id, args.rows, {
       chunkSize: args.chunk_size,
+      validateOptions: args.validate_options,
     });
     return { row_count: r.rowCount, chunks: r.chunks };
+  }
+}
+
+/**
+ * 重命名字段或更改其类型
+ */
+export class UpdateDatabaseFieldHandler extends BaseToolHandler<
+  { av_id: string; key_id: string; name?: string; type?: string },
+  { success: boolean }
+> {
+  readonly name = 'update_database_field';
+  readonly description = `Rename a field, or change its type, without discarding its existing data — the missing counterpart to add_database_field/remove_database_field, which can only add or discard-and-recreate. Works on the primary key too: you can rename SiYuan's default "Primary Key" to something meaningful. The primary key's TYPE cannot be changed (and no other field can be changed to the primary-key type) — SiYuan rejects that with a clear error. Omit name or type to leave that part unchanged. Field types: ${FIELD_TYPES_DESCRIPTION}`;
+  readonly inputSchema: JSONSchema = {
+    type: 'object',
+    properties: {
+      av_id: { type: 'string', description: 'Database ID' },
+      key_id: { type: 'string', description: 'Field ID to update (including the primary key)' },
+      name: { type: 'string', description: 'New field name. Omit to keep the current name.' },
+      type: { type: 'string', description: 'New field type. Omit to keep the current type.', enum: KEY_TYPES },
+    },
+    required: ['av_id', 'key_id'],
+  };
+
+  async execute(args: any, context: ExecutionContext): Promise<{ success: boolean }> {
+    await context.siyuan.av.updateField(args.av_id, args.key_id, { name: args.name, type: args.type });
+    return { success: true };
+  }
+}
+
+/**
+ * 设置 select/mSelect 字段的选项
+ */
+export class ConfigureSelectOptionsHandler extends BaseToolHandler<
+  { av_id: string; key_id: string; options: Array<{ name: string; color?: string; desc?: string }> },
+  { success: boolean }
+> {
+  readonly name = 'configure_select_options';
+  readonly description = 'Explicitly set the options on a select or mSelect field: name, colour, and description. Existing options with a matching name are updated (colour/description); others are added. Options not in the list are left alone, not removed. Matching is exact — same case-sensitivity and whitespace rules as writing a cell value, so an option declared here must be typed identically wherever it is written. Use this to fix the "every implicitly-created option is the same colour" problem (colours default to a 1-14 round-robin here if omitted, rather than SiYuan\'s fixed colour for auto-created options), or to pre-seed a known option set before a bulk import that uses validate_options.';
+  readonly inputSchema: JSONSchema = {
+    type: 'object',
+    properties: {
+      av_id: { type: 'string', description: 'Database ID' },
+      key_id: { type: 'string', description: 'Field ID (must be select or mSelect)' },
+      options: {
+        type: 'array',
+        description: 'Options to set',
+        items: {
+          type: 'object',
+          properties: {
+            name: { type: 'string', description: 'Option name — must match cell values exactly (case, whitespace)' },
+            color: { type: 'string', description: 'Palette index 1-14 as a string. Omit for automatic round-robin assignment.' },
+            desc: { type: 'string', description: 'Optional description' },
+          },
+          required: ['name'],
+        },
+      },
+    },
+    required: ['av_id', 'key_id', 'options'],
+  };
+
+  async execute(args: any, context: ExecutionContext): Promise<{ success: boolean }> {
+    await context.siyuan.av.configureSelectOptions(args.av_id, args.key_id, args.options);
+    return { success: true };
+  }
+}
+
+/**
+ * 无自增字段类型时的下一个序号助手
+ */
+export class GetNextSequenceValueHandler extends BaseToolHandler<
+  { av_id: string; key_id: string },
+  { next_value: number }
+> {
+  readonly name = 'get_next_sequence_value';
+  readonly description = 'Suggest the next value for a manually-maintained sequential ID field (e.g. a "BL-#" or "PF-#" style number column), since SiYuan has no auto-increment field type. Reads the current maximum value of the given number field across every row and returns max + 1 (1 if the database is empty). This is a convenience read, not an atomic counter — two near-simultaneous calls can return the same value, so it does not guarantee uniqueness under concurrent writers. It replaces manually scanning for the highest existing number, not a real auto-increment; verify uniqueness after writing if that matters.';
+  readonly inputSchema: JSONSchema = {
+    type: 'object',
+    properties: {
+      av_id: { type: 'string', description: 'Database ID' },
+      key_id: { type: 'string', description: 'The number field to use as the sequence' },
+    },
+    required: ['av_id', 'key_id'],
+  };
+
+  async execute(args: any, context: ExecutionContext): Promise<{ next_value: number }> {
+    return { next_value: await context.siyuan.av.getNextSequenceValue(args.av_id, args.key_id) };
   }
 }
 

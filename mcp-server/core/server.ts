@@ -182,13 +182,26 @@ export class SiyuanMCPServer {
   private getUsageGuide(): string {
     return `# SiYuan MCP — usage guide
 
+This guide is generic to any source system and any client — it is not written around one
+particular migration. Report anything wrong or missing to the project's Findings queue rather
+than silently working around it; a fix here reaches every caller.
+
+## Structure
+
+Notebooks contain documents, which can nest arbitrarily deep as sub-documents — there is no
+separate space/page distinction to worry about. Nesting is set by the \`path\` argument on
+\`create_document\` (e.g. \`/parent/child\`); there is no separate move step for a document created
+in the right place. Titles and paths take raw text, not HTML-escaped entities — see
+\`create_document\`'s own description. Em dashes, \`®\`, and emoji all pass through cleanly.
+
 ## Choosing a tool
 
 **Editing note text.** Prefer block-level tools over document-level ones. \`update_document\`
-rewrites an entire note; \`update_block\` changes one block and leaves the rest byte-identical.
-On a 10,000-word note that is the difference between resending the whole document and sending a
-few hundred bytes. Use \`get_child_blocks\` to find the block IDs first — that is the discovery
-path for every block tool.
+rewrites an entire note; \`update_block\` changes one block and leaves the rest byte-identical;
+\`append_to_document\` adds to the end without resubmitting anything that already exists. On a
+10,000-word note, block-level editing is the difference between resending the whole document and
+sending a few hundred bytes. Use \`get_child_blocks\` to find block IDs first — that is the
+discovery path for every block tool.
 
 **Reading.** \`get_document_content\` for whole notes, \`get_block_kramdown\` for one block's exact
 source including its attributes, \`unified_search\` to find things, \`get_document_tree\` for
@@ -196,6 +209,15 @@ structure.
 
 **Databases.** \`render_database\` is the main read: it returns computed rows and the row IDs that
 every write tool needs. \`get_database\` returns the schema and raw view config but no rows.
+
+## Cross-document links
+
+Block references use \`((document-id "Display Text"))\` and are bidirectional — a backlink appears
+automatically on the target, with no separate step. The \`siyuan://blocks/<id>\` URL form also
+works but is one-directional (no backlink). Document IDs come from \`create_document\`'s return
+value. When a branch of documents references each other, create all of them first and add the
+links in a second pass — referencing an ID that doesn't exist yet fails, so single-pass creation
+with forward references doesn't work.
 
 ## Bulk import
 
@@ -210,10 +232,68 @@ Recommended order:
 3. \`add_database_rows_with_values\`, giving each row an \`item_id\`
 4. \`embed_database\` to place it in a document
 5. filters, sorts, grouping, layout — only after embedding
+6. \`render_database\` at a small \`page_size\` to verify — \`rowCount\` alone confirms the total; no
+   need to re-fetch every row
 
-Give every row an \`item_id\`. Re-sending a row whose id already exists updates it instead of
-creating a duplicate, which means an interrupted import can simply be re-run from the start.
-Without it, a retry after a timeout silently doubles your data.
+**\`item_id\` scheme, for a resumable import.** Format is 14 digits, a hyphen, then 7 lowercase
+alphanumerics, e.g. \`20230713000000-a3f9c2d\`. Recommended construction: prefix = the source row's
+*date only* (\`YYYYMMDD\` + \`000000\`) — deliberately excluding any time-of-day component, since
+freeform or ambiguous time fields are exactly what produces silent collisions; suffix = the last 7
+characters of the source system's own record ID, which inherits uniqueness from the source rather
+than computing it. This construction is generic — it works for any source, not just one particular
+migration. Re-sending a row whose \`item_id\` already exists **updates it in place** rather than
+duplicating it, which is what makes an interrupted import safely re-runnable from the start.
+Without \`item_id\`, a retry after a timeout silently doubles the data.
+
+**Migration-fidelity principle.** When a source field is ambiguous or inconsistently formatted,
+do not resolve the ambiguity during migration — copy it verbatim, and log the data-quality issue
+as a separate follow-up. Reinterpreting source data mid-migration silently changes what it means;
+this is also why the \`item_id\` scheme above deliberately avoids parsing time-of-day fields.
+
+**Token-efficient bulk writes.** Build and validate the row payload programmatically (row count,
+a uniqueness check, one sample) rather than previewing the full payload in conversation before
+calling the tool — dumping it first and then passing the same data as a parameter doubles the
+token cost for no benefit. Select only the columns actually needed from the source query, not
+every column. \`chunk_size\` controls round-trip/tool-call overhead, not the token floor set by the
+row data itself — a larger \`chunk_size\` reduces call count, not total token cost.
+
+**SiYuan's write limits, versus a source system's read limits.** These are unrelated and worth not
+conflating: \`add_database_rows_with_values\` chunks internally, default 100 rows per request
+(\`chunk_size\` is adjustable), and single unchunked calls of at least 300 rows have been confirmed
+to work cleanly — the true ceiling above that is still unmeasured, so do not assume a hard number
+beyond "300+ proven fine." If a bulk operation is failing or throttling, check which side is
+actually the bottleneck before changing SiYuan-side batch sizes: a rate limit on the system you are
+*reading from* (e.g. a source API's own query limits) calls for backing off or paginating those
+reads, not for shrinking the SiYuan write batches, which were never the constraint in that case.
+
+## Building a database schema
+
+\`create_database\`'s primary key is auto-named "Primary Key" and placed first in the column order
+when created with a \`fields\` schema — rename it with \`update_database_field\` if a more specific
+name is wanted. \`update_database_field\` renames a field or changes its type without discarding
+existing data (the primary key can be renamed but not retyped, and no other field can become the
+primary key). \`configure_select_options\` sets the option list for a select/mSelect field
+explicitly — useful both to control colours (implicit option creation always assigns the same
+colour) and to pre-seed a known option set before an import that uses \`validate_options\`.
+
+**select/mSelect options are created on write, with no validation, no case-folding.** A value not
+already an existing option becomes a new option silently — \`"Done"\` and \`"done"\` are two separate
+options with no warning either way, and this is easy to miss because it looks identical in a table
+view until filters start silently missing rows. Whitespace is trimmed automatically (there being
+no legitimate use for a leading or trailing space in an option name), but case is not folded, since
+folding it automatically could just as easily merge two options that were meant to be distinct.
+Prefer passing values through unchanged from a canonical source rather than retyping them by hand.
+For anything where a stray near-duplicate option would matter, set \`validate_options: true\` on
+\`add_database_rows_with_values\` to reject unknown values instead of silently creating them —
+pair it with \`configure_select_options\` to declare the allowed set first.
+
+**No auto-increment field type exists.** \`lineNumber\` is row position, not a stable identifier —
+it renumbers on delete or reorder, silently reassigning what a given number refers to, which is
+worse than having no ID column at all. For a manually-maintained sequential ID (e.g. a "BL-#" or
+"PF-#" style scheme), \`get_next_sequence_value\` reads the current maximum of a number field and
+suggests max+1. This is a convenience read, not an atomic counter, and does not guarantee
+uniqueness under concurrent writers — it replaces scanning for the highest existing value by hand,
+not a real auto-increment.
 
 ## Relations between databases
 
@@ -237,6 +317,8 @@ These fail without raising an error, so they are worth knowing rather than disco
 - **Row ID versus bound block ID.** They are different identifiers. Writing a cell with the wrong
   one stores a value that never appears anywhere. \`resolve_database_ids\` converts between them.
 - **Unconfigured relation and rollup fields**, as above.
+- **select/mSelect option case-sensitivity**, as above — the whitespace half of this is now
+  handled automatically, the case-folding half is not, deliberately.
 - **The SQL index lags writes by one to two seconds.** A document created a moment ago may not
   appear in \`get_document_tree\` yet.
 - **Grouping hides rows.** A grouped view can report \`rowCount\` above zero while returning an
@@ -247,8 +329,17 @@ These fail without raising an error, so they are worth knowing rather than disco
 
 Write cell values plainly — \`42\`, \`"2026-05-25"\`, \`"Done"\`, \`["A","B"]\`, \`true\`. The server
 converts them according to each field's type. Dates given as \`YYYY-MM-DD\` are interpreted at
-local midnight in the instance's timezone, which is what the interface displays; passing a UTC
-timestamp instead renders as the previous day.
+local midnight in the instance's timezone and rendered with no time shown, matching what the
+interface displays; passing a UTC timestamp instead renders as the previous day west of UTC.
+
+## Known limitations, not planned
+
+- **Formula/\`template\` fields cannot be configured.** They can be created but the expression
+  cannot be set through this server. Deliberately not built: a survey of every database in one
+  full workspace migration found exactly one formula column in use, and it was worked around by
+  dropping it. Revisit only if a specific need for a computed column shows up.
+- **The real ceiling above ~300 rows per unchunked \`add_database_rows_with_values\` call is
+  unmeasured**, as above.
 
 ## Safety
 
