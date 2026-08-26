@@ -333,11 +333,13 @@ new document's body instead — the one to use when each row's content should be
 (e.g. an AI-written brief from a fixed structural template) rather than starting from identical
 boilerplate every time. It only works with a document-target template.
 
-A template's \`primary_key_template\` wins over the per-row \`title\`. SiYuan falls back to \`title\`
-only when \`primary_key_template\` is empty, so a template that sets both names every row alike
-while their bodies still differ, with no error anywhere. Supplying both is rejected up front
-rather than silently ignored; omit \`title\` to accept the generated name, or clear
-\`primary_key_template\` on that template.
+A template's \`primary_key_template\` wins over the per-row \`title\` on
+\`create_database_row_from_template_with_markdown\`. SiYuan falls back to \`title\` only when
+\`primary_key_template\` is empty, so a template setting both names every row alike while their
+bodies still differ, with no error anywhere — and it still requires a non-empty \`title\` on the
+call, so there is no per-row way to opt out. That combination is rejected up front instead.
+Either clear \`primary_key_template\` on the template, or use
+\`create_database_row_from_template\`, whose rows are meant to take their name from it.
 
 A document-target template creates each row's document as a **child of the document holding the
 database**, unless the template's own save location says otherwise. So removing the host document

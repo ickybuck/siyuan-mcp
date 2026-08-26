@@ -1155,8 +1155,9 @@ export class CreateDatabaseRowFromTemplateHandler extends BaseToolHandler<
 /**
  * 内核只在模板的 primaryKeyTemplate 为空时才使用调用方传入的 title，见
  * kernel/model/attribute_view_new_item.go：两者同时给出时 title 被静默丢弃，
- * 整批条目会得到同一个名字，正文却是对的——没有任何报错。与未知字段 ID、缺失主键
- * 同一类失败，所以照同样的做法在写之前拦下来。
+ * 整批条目会得到同一个名字，正文却是对的——没有任何报错。而 title 本身又是内核的必填
+ * 参数（kernel/api/av.go 的 BindJsonArg required+notEmpty），所以"不传 title"并不是
+ * 出路，只能拦下这个组合。与未知字段 ID、缺失主键同一类失败，做法也一样。
  */
 async function assertTitleNotOverriddenByTemplate(
   avID: string,
@@ -1174,7 +1175,8 @@ async function assertTitleNotOverriddenByTemplate(
   throw new Error(
     `Template ${templateID} sets primary_key_template to "${primaryKeyTemplate}", which SiYuan applies to every row created from it. ` +
       `The title "${title}" would be discarded without an error, naming every row alike while their bodies differ. ` +
-      'Either omit title and accept the template-generated name, or clear primary_key_template on that template with configure_new_item_templates.'
+      'SiYuan requires a non-empty title on this call regardless, so there is no way to opt out per row: either clear primary_key_template on that template with configure_new_item_templates, ' +
+      'or use create_database_row_from_template if the template-generated name and its static content are what you want.'
   );
 }
 
@@ -1186,7 +1188,7 @@ export class CreateDatabaseRowFromTemplateWithMarkdownHandler extends BaseToolHa
     av_id: string;
     block_id: string;
     template_id: string;
-    title?: string;
+    title: string;
     markdown: string;
     view_id?: string;
     previous_id?: string;
@@ -1207,7 +1209,7 @@ export class CreateDatabaseRowFromTemplateWithMarkdownHandler extends BaseToolHa
       av_id: { type: 'string', description: 'Database ID' },
       block_id: { type: 'string', description: 'The database block embedding this database, from embed_database' },
       template_id: { type: 'string', description: 'A document-target template\'s id, from configure_new_item_templates\'s response' },
-      title: { type: 'string', description: 'Title of the new bound document, which also becomes the row\'s primary-key text. SiYuan uses it only when the template\'s primary_key_template is empty, so passing both is rejected rather than silently ignored. Omit to accept the name the template generates.' },
+      title: { type: 'string', description: 'Title of the new bound document, which also becomes the row\'s primary-key text. Required and non-empty — SiYuan rejects an empty one. It is used only when the template\'s primary_key_template is empty; a template that sets both is rejected here rather than silently discarding the title.' },
       markdown: { type: 'string', description: 'Markdown content for the new document\'s body' },
       view_id: { type: 'string', description: 'Target view. Omit to use the first available view.' },
       previous_id: { type: 'string', description: 'Row ID to insert the new row directly after. Omit to append at the end.' },
@@ -1217,13 +1219,11 @@ export class CreateDatabaseRowFromTemplateWithMarkdownHandler extends BaseToolHa
       clipping_href: { type: 'string', description: 'Optional source URL, if this document was clipped from the web' },
       list_doc_tree: { type: 'boolean', description: 'List the new document in its notebook\'s document tree' },
     },
-    required: ['av_id', 'block_id', 'template_id', 'markdown'],
+    required: ['av_id', 'block_id', 'template_id', 'title', 'markdown'],
   };
 
   async execute(args: any, context: ExecutionContext): Promise<{ item_id: string; block_id: string; content: string; is_detached: boolean; warnings?: string[] }> {
-    if (args.title) {
-      await assertTitleNotOverriddenByTemplate(args.av_id, args.template_id, args.title, context);
-    }
+    await assertTitleNotOverriddenByTemplate(args.av_id, args.template_id, args.title, context);
     const r = await context.siyuan.av.createRowFromTemplateWithMarkdown(
       args.av_id,
       args.block_id,
