@@ -73,8 +73,27 @@ Recommended order:
 3. \`add_database_rows_with_values\`, giving each row an \`item_id\`
 4. \`embed_database\` to place it in a document
 5. filters, sorts, grouping, layout — only after embedding
-6. \`render_database\` at a small \`page_size\` to verify — \`rowCount\` alone confirms the total; no
-   need to re-fetch every row
+6. verify by **membership, not by count** — see below
+
+**Verify by membership, not by count.** Pick several records you know are in the source —
+including ones from the middle and the end of the run, not just the first few — and confirm each
+one is present in the target, with \`render_database\`'s \`query\` parameter or
+\`get_database_primary_key_values\` with a keyword. A total is not verification. A real import on
+this workspace lost a contiguous block of ~50 rows while the total came back at 99 against a
+rough expectation of "about 90", and was declared complete on that basis; it was caught only by
+searching for two specific entries and getting nothing back. Two counts that sum to a believable
+number tell you nothing about which rows are missing, and the plausible total is exactly what
+stops anyone looking further.
+
+Note also that \`row_count\` from \`add_database_rows_with_values\` echoes the rows *submitted*, not
+the rows written. It is a receipt for the request, not evidence about the database.
+
+**Consume a source page fully before advancing its cursor.** Cursor pagination has no concept of
+partial consumption: once the next page is fetched, nothing in the response, the cursor, or the
+target records that the previous page had a remainder. If a page cannot be finished in one go,
+record the boundary explicitly somewhere outside the cursor. This matters most across a long run
+where the reader and the writer may be different sessions — the loss is silent, contiguous, and
+looks exactly like a complete import.
 
 **\`item_id\` scheme, for a resumable import.** Format is 14 digits, a hyphen, then 7 lowercase
 alphanumerics, e.g. \`20230713000000-a3f9c2d\`. Recommended construction: prefix = the source row's
