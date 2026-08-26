@@ -117,14 +117,14 @@ export class AddDatabaseFieldsHandler extends BaseToolHandler<
  * 批量创建行并同时写入值
  */
 export class AddDatabaseRowsWithValuesHandler extends BaseToolHandler<
-  { av_id: string; rows: Array<Record<string, any>>; chunk_size?: number; validate_options?: boolean; allow_empty_primary_key?: boolean },
+  { av_id: string; rows: Array<Record<string, any>>; chunk_size?: number; validate_options?: boolean },
   { row_count: number; chunks: number }
 > {
   readonly name = 'add_database_rows_with_values';
   readonly annotations = { readOnlyHint: false, destructiveHint: false } as const;
   readonly description = `Create detached rows AND set all their cell values in one call — the tool to use for bulk import. Each row is an object mapping field ID to value, including the primary-key field. This replaces the create-then-render-then-set-each-cell sequence: 100 rows of 10 fields is one call here versus roughly 1,002 otherwise. ${CELL_VALUE_DESCRIPTION}
 RETRY SAFETY, verified against the kernel: a chunk is atomic, so if it fails nothing in it was written and it is safe to send again. But a chunk that SUCCEEDS and is sent again creates duplicate rows. After a timeout or any uncertain failure, do not blindly retry — either read the database back first, or use item_id. Giving each row an "item_id" pins its row ID, and re-sending a row with an id that already exists updates it instead of duplicating, which makes an import safely resumable. item_id must be 14 digits, a hyphen, then 7 lowercase alphanumerics; derive it from something stable in the source data (deriveItemId in the library helps with this).
-An unknown field ID causes SiYuan to reject the whole batch, so this tool checks IDs up front and names the offender. Every row must also carry a non-empty value for the primary-key field — if it is missing or empty, SiYuan silently creates no row at all for it (row_count still reports the number of rows submitted, not written), so this is rejected up front by row index instead; pass allow_empty_primary_key if an empty title is genuinely intended. Rows are chunked (default 100, confirmed working up to at least 300 in a single call) because the kernel has historically been unstable under very large or rapid writes. Take a snapshot with create_snapshot before a large import. Rows created this way are detached: they live only in the database and are not bound to document blocks.
+An unknown field ID causes SiYuan to reject the whole batch, so this tool checks IDs up front and names the offender. Every row must also carry a non-empty value for the primary-key field — this is a hard kernel requirement, not a connector choice: if it is missing, null, or an empty string, SiYuan silently creates no row at all for that entry (row_count still reports the number of rows submitted, not written), and there is no way to opt around it — any non-empty string works, even a single space, but genuinely empty never does. Rejected up front by row index instead of shipped to the kernel. Rows are chunked (default 100, confirmed working up to at least 300 in a single call) because the kernel has historically been unstable under very large or rapid writes. Take a snapshot with create_snapshot before a large import. Rows created this way are detached: they live only in the database and are not bound to document blocks.
 select/mSelect values that don't match an existing option are silently created as new options — case-sensitive, whitespace-trimmed but otherwise unvalidated. Set validate_options to catch this instead of discovering it later as a near-duplicate option.
 VERIFYING A LARGE IMPORT: row_count and a total from get_database_primary_key_values only prove a count, not that specific rows survived — two batches can sum to the expected total while a contiguous block in the middle went missing (e.g. from partial consumption of a paginated source). Spot-check a handful of known keys with render_database's query param, or get_database_primary_key_values with keyword, rather than trusting the totals alone.`;
   readonly inputSchema: JSONSchema = {
@@ -144,10 +144,6 @@ VERIFYING A LARGE IMPORT: row_count and a total from get_database_primary_key_va
         type: 'boolean',
         description: 'When true, reject the call up front if any select/mSelect value is not already an existing option for its field — instead of letting SiYuan silently create a new, possibly near-duplicate option. Pre-seed the allowed set with configure_select_options first. Defaults to false, since creating new options is often exactly what is wanted.',
       },
-      allow_empty_primary_key: {
-        type: 'boolean',
-        description: 'When true, skip the check that rejects rows with a missing or empty primary-key value. Off by default because an empty primary key otherwise causes SiYuan to silently create no row at all for that entry.',
-      },
     },
     required: ['av_id', 'rows'],
   };
@@ -156,7 +152,6 @@ VERIFYING A LARGE IMPORT: row_count and a total from get_database_primary_key_va
     const r = await context.siyuan.av.appendDetachedRowsWithValues(args.av_id, args.rows, {
       chunkSize: args.chunk_size,
       validateOptions: args.validate_options,
-      allowEmptyPrimaryKey: args.allow_empty_primary_key,
     });
     return { row_count: r.rowCount, chunks: r.chunks };
   }
