@@ -333,6 +333,11 @@ new document's body instead — the one to use when each row's content should be
 (e.g. an AI-written brief from a fixed structural template) rather than starting from identical
 boilerplate every time. It only works with a document-target template.
 
+A document-target template creates each row's document as a **child of the document holding the
+database**, unless the template's own save location says otherwise. So removing the host document
+removes those row documents with it — there is no need to delete them separately, and trying to
+is what surfaces the misleading \`indexing\` error described below.
+
 ## Relations between databases
 
 A field of type \`relation\` or \`rollup\` is created inert. It exists, and it points at nothing.
@@ -363,6 +368,12 @@ These fail without raising an error, so they are worth knowing rather than disco
   with no way to detect that from the response.
 - **The SQL index lags writes by one to two seconds.** A document created a moment ago may not
   appear in \`get_document_tree\` yet.
+- **\`indexing\` is what "no such document" often looks like.** Not silent, but misleading: when a
+  block ID is not in the block tree, SiYuan falls back to searching the filesystem for it, and
+  that search is rate-limited to one call every three seconds. A second miss inside that window
+  is refused with the error \`indexing\` instead of \`tree not found\`. During a burst of writes and
+  deletes this reads like a transient kernel problem when the real cause is a stale ID — usually
+  a document already removed as a child of something else. Re-check the ID before retrying.
 - **Grouping hides rows.** A grouped view can report \`rowCount\` above zero while returning an
   empty \`rows\` array, and grouping survives a layout change. Clear the group before concluding
   data is missing.
