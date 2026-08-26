@@ -99,7 +99,8 @@ export interface JSONSchema {
 }
 
 export interface JSONSchemaProperty {
-  type: string;
+  /** Omit for a polymorphic value (e.g. a cell value whose shape depends on field type) — valid JSON Schema, matches any type. */
+  type?: string;
   description?: string;
   default?: any;
   enum?: any[];
