@@ -85,6 +85,9 @@ import {
   RemoveDatabaseFieldHandler,
   SortDatabaseFieldHandler,
   SortDatabaseViewFieldHandler,
+  ConfigureNewItemTemplatesHandler,
+  CreateDatabaseRowFromTemplateHandler,
+  CreateDatabaseRowFromTemplateWithMarkdownHandler,
 } from './av.js';
 import {
   ListNotebooksHandler,
@@ -164,6 +167,9 @@ export function createAllHandlers() {
     new RemoveDatabaseFieldHandler(),
     new SortDatabaseFieldHandler(),
     new SortDatabaseViewFieldHandler(),
+    new ConfigureNewItemTemplatesHandler(),
+    new CreateDatabaseRowFromTemplateHandler(),
+    new CreateDatabaseRowFromTemplateWithMarkdownHandler(),
 
     // 笔记本
     new ListNotebooksHandler(),

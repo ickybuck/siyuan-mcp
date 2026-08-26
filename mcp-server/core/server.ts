@@ -210,6 +210,10 @@ structure.
 
 **Databases.** \`render_database\` is the main read: it returns computed rows and the row IDs that
 every write tool needs. \`get_database\` returns the schema and raw view config but no rows.
+\`add_database_rows_with_values\` creates rows; to correct or update rows that already exist, use
+\`set_database_cell\` (one cell) or \`set_database_cells\` (many, across one or more rows, in one
+call — the batch path for corrections the way \`add_database_rows_with_values\` is the batch path
+for creation). Both accept the same plain-form values described below.
 
 ## Cross-document links
 
@@ -225,6 +229,12 @@ with forward references doesn't work.
 Do not create rows one at a time. \`add_database_rows_with_values\` creates rows and sets every
 cell in one request; \`create_database\` accepts a whole field schema in one call. A 3-row,
 10-field database takes about 4 calls this way and roughly 45 without.
+
+Every row must include a non-empty value for the primary-key field. \`add_database_rows_with_values\`
+rejects the whole call up front, naming the row index, rather than let SiYuan silently create no
+row at all for that one entry while still reporting it as written. This check is specific to that
+tool's endpoint — if a row genuinely needs a blank title, use \`add_database_rows\` instead (accepts
+an empty or omitted title) and fill in the other fields afterward with \`set_database_cell\`.
 
 Recommended order:
 
@@ -296,6 +306,27 @@ suggests max+1. This is a convenience read, not an atomic counter, and does not 
 uniqueness under concurrent writers — it replaces scanning for the highest existing value by hand,
 not a real auto-increment.
 
+## Row-creation templates
+
+\`configure_new_item_templates\` sets a database's row-creation templates — SiYuan's equivalent of
+Notion's page templates. A "detached" template just pre-fills field defaults; a "document"
+template additionally binds each new row to a real document, with a body copied from a template
+document (or supplied fresh per row — see below). Requires the database to be embedded
+(\`block_id\` from \`embed_database\`) before rows can actually be created from a template, though
+the templates themselves can be configured on a detached database.
+
+This call **replaces the whole template set**, not a merge — read \`newItemTemplates\` back from
+\`get_database\` first if amending rather than replacing. select/mSelect default values must
+already exist as options on the field (\`configure_select_options\` first); unlike a normal cell
+write, an unknown option here is rejected rather than created.
+
+To use a template: \`create_database_row_from_template\` creates a row from it (or a blank row if
+no template is given), reusing a "document" template's own content unchanged.
+\`create_database_row_from_template_with_markdown\` does the same but takes fresh markdown for the
+new document's body instead — the one to use when each row's content should be generated per-row
+(e.g. an AI-written brief from a fixed structural template) rather than starting from identical
+boilerplate every time. It only works with a document-target template.
+
 ## Relations between databases
 
 A field of type \`relation\` or \`rollup\` is created inert. It exists, and it points at nothing.
@@ -345,6 +376,27 @@ interface displays; passing a UTC timestamp instead renders as the previous day 
   dropping it. Revisit only if a specific need for a computed column shows up.
 - **The real ceiling above ~300 rows per unchunked \`add_database_rows_with_values\` call is
   unmeasured**, as above.
+
+## Reporting problems
+
+This guide is generic, so it lags reality — anything found wrong or missing belongs in the
+Project Findings database under 3.9.1 (\`Owner\` set to \`Code\`), not worked around silently. A
+finding is only as useful as what it lets the other side reproduce without asking follow-up
+questions. Before filing one:
+
+- **Verify it is actually a tool bug, not a caller mistake**, by reading the result back — a
+  success response is not proof of anything written; a thrown error is not proof the tool is
+  broken (it may be doing exactly what it should with bad input). Several fixes on this project
+  turned out to require correction after a first pass overstated how broadly a limitation applied
+  (see the PF-18 entry in the Decisions log) — scope a claim to the specific tool and endpoint
+  actually tested, not "the kernel" or "the connector" in general.
+- **Quote the exact error text**, verbatim, not a paraphrase — silent-failure classes on this
+  project have repeatedly turned on one specific wrong word in a JSON key or action name.
+- **Name the exact tool called and the arguments that triggered it** (redact real data, keep
+  structure/shape), and what \`render_database\` or the equivalent read-back actually showed
+  afterward, not just what was expected.
+- **Give a minimal reproduction** where possible — the smallest call that reproduces it, not the
+  full migration context it was found in.
 
 ## Safety
 

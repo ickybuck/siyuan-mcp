@@ -1012,3 +1012,189 @@ export class SortDatabaseViewFieldHandler extends BaseToolHandler<
     return { success: true };
   }
 }
+
+const NEW_ITEM_FIELD_VALUE_DESCRIPTION =
+  'Default value for this field on rows created from the template. { value: <plain form value> } for a fixed default (same plain forms as set_database_cell — see that tool\'s description), ' +
+  'or { mode: "current_time" } for a date field to default to the creation time. ' +
+  'select/mSelect defaults must already exist as options on the field (configure_select_options first) — unlike a normal cell write, this does not create them implicitly.';
+
+/**
+ * 设置数据库新增条目模板
+ */
+export class ConfigureNewItemTemplatesHandler extends BaseToolHandler<
+  {
+    av_id: string;
+    templates: Array<{
+      id?: string;
+      name: string;
+      icon?: string;
+      target_type: 'detached' | 'document';
+      primary_key_template?: string;
+      field_values?: Record<string, { mode?: 'static' | 'current_time'; value?: any }>;
+      save_location?: { box_id?: string; path_template: string };
+      content_template_path?: string;
+      hide_in_file_tree?: boolean;
+    }>;
+    default_template_id?: string;
+  },
+  { template_ids: Record<string, string> }
+> {
+  readonly name = 'configure_new_item_templates';
+  readonly annotations = { readOnlyHint: false, destructiveHint: true } as const;
+  readonly description = `Set the row-creation templates for a SiYuan database — the equivalent of Notion's page templates. A "detached" template only pre-fills field default values; a "document" template additionally binds new rows to a real document, with its body taken from content_template_path (unless overridden per-row via create_database_row_from_template_with_markdown) and saved per save_location.
+REPLACES THE WHOLE SET, not a merge: templates omitted from this call are dropped. To amend an existing configuration, read newItemTemplates back from get_database first and include everything that should still exist. Templates without an explicit id get one generated and returned in template_ids (keyed by name) — pass that id back as id on a later call to update the same template in place, or as default_template_id.
+${NEW_ITEM_FIELD_VALUE_DESCRIPTION}`;
+  readonly inputSchema: JSONSchema = {
+    type: 'object',
+    properties: {
+      av_id: { type: 'string', description: 'Database ID' },
+      templates: {
+        type: 'array',
+        description: 'The complete set of templates this database should have after the call.',
+        items: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', description: 'Omit to create a new template; pass an existing template\'s id to update it in place.' },
+            name: { type: 'string', description: 'Display name shown when picking a template' },
+            icon: { type: 'string', description: 'Optional emoji icon' },
+            target_type: { type: 'string', enum: ['detached', 'document'], description: '"detached" pre-fills field defaults only; "document" also creates and binds a real document per row' },
+            primary_key_template: { type: 'string', description: 'Optional default text for the primary-key field on new rows, e.g. "Untitled"' },
+            field_values: { type: 'object', description: NEW_ITEM_FIELD_VALUE_DESCRIPTION },
+            save_location: {
+              type: 'object',
+              description: 'Document-target only. Omit to inherit the global default document location.',
+              properties: {
+                box_id: { type: 'string', description: 'Notebook ID. Omit to use the notebook the database itself lives in.' },
+                path_template: { type: 'string', description: 'Path template for the new document, e.g. "/Episodes/${title}"' },
+              },
+              required: ['path_template'],
+            },
+            content_template_path: { type: 'string', description: 'Document-target only: path of the document whose content is copied into every new row\'s body' },
+            hide_in_file_tree: { type: 'boolean', description: 'Document-target only: hide the created documents from the file tree' },
+          },
+          required: ['name', 'target_type'],
+        },
+      },
+      default_template_id: { type: 'string', description: 'Template id pre-selected when a row is created without specifying one explicitly.' },
+    },
+    required: ['av_id', 'templates'],
+  };
+
+  async execute(args: any, context: ExecutionContext): Promise<{ template_ids: Record<string, string> }> {
+    const templates = args.templates.map((t: any) => ({
+      id: t.id,
+      name: t.name,
+      icon: t.icon,
+      targetType: t.target_type,
+      primaryKeyTemplate: t.primary_key_template,
+      fieldValues: t.field_values
+        ? Object.fromEntries(
+            Object.entries(t.field_values).map(([keyID, fv]: [string, any]) => [
+              keyID,
+              { mode: fv.mode === 'current_time' ? 'currentTime' : 'static', value: fv.value },
+            ])
+          )
+        : undefined,
+      saveLocation: t.save_location ? { boxID: t.save_location.box_id, pathTemplate: t.save_location.path_template } : undefined,
+      contentTemplatePath: t.content_template_path,
+      hideInFileTree: t.hide_in_file_tree,
+    }));
+    const { templateIDs } = await context.siyuan.av.setNewItemTemplates(args.av_id, templates, args.default_template_id);
+    return { template_ids: templateIDs };
+  }
+}
+
+/**
+ * 按模板创建数据库条目
+ */
+export class CreateDatabaseRowFromTemplateHandler extends BaseToolHandler<
+  { av_id: string; block_id: string; template_id?: string; view_id?: string; previous_id?: string; group_id?: string },
+  { item_id: string; block_id: string; content: string; is_detached: boolean; warnings?: string[] }
+> {
+  readonly name = 'create_database_row_from_template';
+  readonly annotations = { readOnlyHint: false, destructiveHint: false } as const;
+  readonly description = 'Create a new row in a SiYuan database using one of its configured row-creation templates (see configure_new_item_templates), or a blank row if template_id is omitted. For a "document" template this also creates and binds a real document, with content copied from the template\'s content_template_path — to supply custom content instead, use create_database_row_from_template_with_markdown. Requires an embedded database (has a real block_id from embed_database); does not work on a detached database.';
+  readonly inputSchema: JSONSchema = {
+    type: 'object',
+    properties: {
+      av_id: { type: 'string', description: 'Database ID' },
+      block_id: { type: 'string', description: 'The database block embedding this database, from embed_database' },
+      template_id: { type: 'string', description: 'Template to use, from configure_new_item_templates\'s response. Omit for a blank detached row.' },
+      view_id: { type: 'string', description: 'Target view. Omit to use the first available view.' },
+      previous_id: { type: 'string', description: 'Row ID to insert the new row directly after. Omit to append at the end.' },
+      group_id: { type: 'string', description: 'Group to insert into, for a grouped view.' },
+    },
+    required: ['av_id', 'block_id'],
+  };
+
+  async execute(args: any, context: ExecutionContext): Promise<{ item_id: string; block_id: string; content: string; is_detached: boolean; warnings?: string[] }> {
+    const r = await context.siyuan.av.createRowFromTemplate(args.av_id, args.block_id, {
+      templateID: args.template_id,
+      viewID: args.view_id,
+      previousID: args.previous_id,
+      groupID: args.group_id,
+    });
+    return { item_id: r.itemID, block_id: r.blockID, content: r.content, is_detached: r.isDetached, warnings: r.warnings };
+  }
+}
+
+/**
+ * 按 document 类型模板创建数据库条目，并提供自定义 Markdown 正文
+ */
+export class CreateDatabaseRowFromTemplateWithMarkdownHandler extends BaseToolHandler<
+  {
+    av_id: string;
+    block_id: string;
+    template_id: string;
+    title: string;
+    markdown: string;
+    view_id?: string;
+    previous_id?: string;
+    group_id?: string;
+    tags?: string;
+    with_math?: boolean;
+    clipping_href?: string;
+    list_doc_tree?: boolean;
+  },
+  { item_id: string; block_id: string; content: string; is_detached: boolean; warnings?: string[] }
+> {
+  readonly name = 'create_database_row_from_template_with_markdown';
+  readonly annotations = { readOnlyHint: false, destructiveHint: false } as const;
+  readonly description = 'Create a new row bound to a real document, using a "document"-target template (see configure_new_item_templates) but with the given markdown as the document body instead of the template\'s own content_template_path — the way to generate a fresh, per-row body (e.g. an AI-written brief) rather than copying the same static template content every time. template_id must reference a document-target template; this cannot create a detached row. Requires an embedded database (has a real block_id from embed_database).';
+  readonly inputSchema: JSONSchema = {
+    type: 'object',
+    properties: {
+      av_id: { type: 'string', description: 'Database ID' },
+      block_id: { type: 'string', description: 'The database block embedding this database, from embed_database' },
+      template_id: { type: 'string', description: 'A document-target template\'s id, from configure_new_item_templates\'s response' },
+      title: { type: 'string', description: 'Title of the new bound document (also becomes the row\'s primary-key text)' },
+      markdown: { type: 'string', description: 'Markdown content for the new document\'s body' },
+      view_id: { type: 'string', description: 'Target view. Omit to use the first available view.' },
+      previous_id: { type: 'string', description: 'Row ID to insert the new row directly after. Omit to append at the end.' },
+      group_id: { type: 'string', description: 'Group to insert into, for a grouped view.' },
+      tags: { type: 'string', description: 'Comma-separated tags for the new document' },
+      with_math: { type: 'boolean', description: 'Enable math rendering for the new document' },
+      clipping_href: { type: 'string', description: 'Optional source URL, if this document was clipped from the web' },
+      list_doc_tree: { type: 'boolean', description: 'List the new document in its notebook\'s document tree' },
+    },
+    required: ['av_id', 'block_id', 'template_id', 'title', 'markdown'],
+  };
+
+  async execute(args: any, context: ExecutionContext): Promise<{ item_id: string; block_id: string; content: string; is_detached: boolean; warnings?: string[] }> {
+    const r = await context.siyuan.av.createRowFromTemplateWithMarkdown(
+      args.av_id,
+      args.block_id,
+      args.template_id,
+      {
+        title: args.title,
+        markdown: args.markdown,
+        tags: args.tags,
+        withMath: args.with_math,
+        clippingHref: args.clipping_href,
+        listDocTree: args.list_doc_tree,
+      },
+      { viewID: args.view_id, previousID: args.previous_id, groupID: args.group_id }
+    );
+    return { item_id: r.itemID, block_id: r.blockID, content: r.content, is_detached: r.isDetached, warnings: r.warnings };
+  }
+}
