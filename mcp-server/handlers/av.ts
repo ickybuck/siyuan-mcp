@@ -335,11 +335,11 @@ export class ConfigureRollupFieldHandler extends BaseToolHandler<
  */
 export class ResolveDatabaseIdsHandler extends BaseToolHandler<
   { av_id: string; item_ids?: string[]; block_ids?: string[] },
-  { item_ids?: string[]; block_ids?: string[] }
+  { item_ids?: Record<string, string>; block_ids?: Record<string, string> }
 > {
   readonly name = 'resolve_database_ids';
   readonly annotations = { readOnlyHint: true } as const;
-  readonly description = 'Translate between a database\'s row IDs and the document block IDs its rows are bound to. These are different identifiers and confusing them is a common source of silent data loss: writing a cell with a block ID where a row ID belongs stores an orphan value that never appears. Pass item_ids to get the bound block IDs, or block_ids to get the row IDs. Detached rows have no bound block and come back empty.';
+  readonly description = 'Translate between a database\'s row IDs and the document block IDs its rows are bound to. These are different identifiers and confusing them is a common source of silent data loss: writing a cell with a block ID where a row ID belongs stores an orphan value that never appears. Pass item_ids to get the bound block IDs, or block_ids to get the row IDs. Each result is an OBJECT keyed by the ID you asked about, not a positional array — an ID that resolves to nothing (a detached row, or a block not in this database) comes back with an empty string, so every input ID is present in the result either way.';
   readonly inputSchema: JSONSchema = {
     type: 'object',
     properties: {
@@ -357,8 +357,11 @@ export class ResolveDatabaseIdsHandler extends BaseToolHandler<
     return true;
   }
 
-  async execute(args: any, context: ExecutionContext): Promise<{ item_ids?: string[]; block_ids?: string[] }> {
-    const out: { item_ids?: string[]; block_ids?: string[] } = {};
+  async execute(
+    args: any,
+    context: ExecutionContext
+  ): Promise<{ item_ids?: Record<string, string>; block_ids?: Record<string, string> }> {
+    const out: { item_ids?: Record<string, string>; block_ids?: Record<string, string> } = {};
     if (args.item_ids?.length) {
       out.block_ids = await context.siyuan.av.getBoundBlockIDsByItemIDs(args.av_id, args.item_ids);
     }
@@ -1239,5 +1242,109 @@ export class CreateDatabaseRowFromTemplateWithMarkdownHandler extends BaseToolHa
       { viewID: args.view_id, previousID: args.previous_id, groupID: args.group_id }
     );
     return { item_id: r.itemID, block_id: r.blockID, content: r.content, is_detached: r.isDetached, warnings: r.warnings };
+  }
+}
+
+/**
+ * 批量把已有块绑成行并同时写值
+ */
+export class AddBoundDatabaseRowsWithValuesHandler extends BaseToolHandler<
+  {
+    av_id: string;
+    rows: Array<{ block_id: string; values?: Record<string, any> }>;
+    block_id?: string;
+    view_id?: string;
+    group_id?: string;
+    previous_id?: string;
+    chunk_size?: number;
+    validate_options?: boolean;
+    ignore_default_fill?: boolean;
+  },
+  { row_count: number; chunks: number; updated: number; item_ids: Record<string, string> }
+> {
+  readonly name = 'add_bound_database_rows_with_values';
+  readonly annotations = { readOnlyHint: false, destructiveHint: false } as const;
+  readonly description = `Bind existing documents (or blocks) into a database as rows AND set all their cell values, in one call — the bound-row counterpart of add_database_rows_with_values, which can only create detached rows. Use this when the documents already exist. When they do not, it is cheaper to bulk-create detached rows with add_database_rows_with_values and then convert the whole batch with convert_database_rows_to_documents, which creates a document per row.
+A bound row takes its name from the document it binds, so the primary-key field is rejected here: writing it succeeds but only overrides the row's display text, leaving it disagreeing with the document's own title. Rename the document instead.
+Row IDs are resolved from SiYuan's own block-to-row mapping rather than assumed from ordering, and are returned as item_ids keyed by block ID. ${CELL_VALUE_DESCRIPTION}`;
+  readonly inputSchema: JSONSchema = {
+    type: 'object',
+    properties: {
+      av_id: { type: 'string', description: 'Database ID' },
+      rows: {
+        type: 'array',
+        description: 'One entry per block to bind, with the cell values that row should carry.',
+        items: {
+          type: 'object',
+          properties: {
+            block_id: { type: 'string', description: 'ID of the existing document/block this row binds to' },
+            values: { type: 'object', description: 'Field ID to value, excluding the primary-key field. See the tool description for accepted value forms.' },
+          },
+          required: ['block_id'],
+        },
+      },
+      block_id: { type: 'string', description: 'The database block embedding this database, from embed_database. Resolves the target view/group.' },
+      view_id: { type: 'string', description: 'Explicit target view. Omit to use the view resolved from block_id, then the first view.' },
+      group_id: { type: 'string', description: 'Target group ID for kanban views. Omit for table/gallery.' },
+      previous_id: { type: 'string', description: 'Insert after this row ID. Omit to append at the end.' },
+      chunk_size: { type: 'number', description: 'Rows per request. Defaults to 100.' },
+      validate_options: { type: 'boolean', description: 'Reject select/mSelect values that are not already options on the field, instead of letting SiYuan create them silently.' },
+      ignore_default_fill: { type: 'boolean', description: 'When true, skip auto-filling default values into filter/group fields' },
+    },
+    required: ['av_id', 'rows'],
+  };
+
+  async execute(args: any, context: ExecutionContext): Promise<{ row_count: number; chunks: number; updated: number; item_ids: Record<string, string> }> {
+    const rows = args.rows.map((r: any) => ({ blockID: r.block_id, values: r.values }));
+    const result = await context.siyuan.av.addBoundRowsWithValues(args.av_id, rows, {
+      blockID: args.block_id,
+      viewID: args.view_id,
+      groupID: args.group_id,
+      previousID: args.previous_id,
+      chunkSize: args.chunk_size,
+      validateOptions: args.validate_options,
+      ignoreDefaultFill: args.ignore_default_fill,
+    });
+    return { row_count: result.rowCount, chunks: result.chunks, updated: result.updated, item_ids: result.itemIDs };
+  }
+}
+
+/**
+ * 游离行批量转为绑定文档的行
+ */
+export class ConvertDatabaseRowsToDocumentsHandler extends BaseToolHandler<
+  { av_id: string; block_id: string; item_ids: string[]; save_mode?: 'sub_doc' | 'template'; chunk_size?: number },
+  { converted_item_ids: string[]; block_ids: string[]; skipped_item_ids: string[]; warnings: string[] }
+> {
+  readonly name = 'convert_database_rows_to_documents';
+  readonly annotations = { readOnlyHint: false, destructiveHint: false } as const;
+  readonly description = 'Turn existing detached rows into document-bound rows: SiYuan creates one real document per row, named from the row\'s primary key, and rebinds the row to it while keeping every cell value the row already had. This is the second half of the cheap bulk-import path — create the whole batch with add_database_rows_with_values (detached, one call, all values), then convert it here (one call) instead of creating and wiring each document separately. Rows that are already bound are skipped and reported in skipped_item_ids rather than counted as converted. Each chunk is one kernel transaction that rolls back its own created documents if it fails.';
+  readonly inputSchema: JSONSchema = {
+    type: 'object',
+    properties: {
+      av_id: { type: 'string', description: 'Database ID' },
+      block_id: { type: 'string', description: 'The database block embedding this database, from embed_database. Required — SiYuan resolves the notebook and save location from it.' },
+      item_ids: { type: 'array', items: { type: 'string' }, description: 'Row IDs to convert, from render_database (rows[].id / cards[].id)' },
+      save_mode: {
+        type: 'string',
+        enum: ['sub_doc', 'template'],
+        description: '"sub_doc" (default) creates each document as a child of the document holding the database. "template" uses the database\'s default row-creation template (see configure_new_item_templates) for save location and body, falling back to SiYuan\'s default location when that template is not document-target.',
+      },
+      chunk_size: { type: 'number', description: 'Rows per kernel transaction. Defaults to 50. Only affects transaction size; each chunk is still atomic on its own.' },
+    },
+    required: ['av_id', 'block_id', 'item_ids'],
+  };
+
+  async execute(args: any, context: ExecutionContext): Promise<{ converted_item_ids: string[]; block_ids: string[]; skipped_item_ids: string[]; warnings: string[] }> {
+    const result = await context.siyuan.av.createItemDocs(args.av_id, args.block_id, args.item_ids, {
+      saveMode: args.save_mode === 'template' ? 'template' : 'subDoc',
+      chunkSize: args.chunk_size,
+    });
+    return {
+      converted_item_ids: result.itemIDs,
+      block_ids: result.blockIDs,
+      skipped_item_ids: result.skippedItemIDs ?? [],
+      warnings: result.warnings ?? [],
+    };
   }
 }

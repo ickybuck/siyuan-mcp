@@ -277,6 +277,36 @@ actually the bottleneck before changing SiYuan-side batch sizes: a rate limit on
 *reading from* (e.g. a source API's own query limits) calls for backing off or paginating those
 reads, not for shrinking the SiYuan write batches, which were never the constraint in that case.
 
+## Rows bound to real documents
+
+A detached row lives only inside the database. A bound row points at a real document, which is
+what you want whenever the row has a body — a character profile, an episode, a mystery entry.
+Bound rows used to cost roughly one call per field; two tools now make them bulk work.
+
+**When the documents do not exist yet** — the common case for a migration — create the rows
+detached with all their values, then convert the whole batch:
+
+1. \`add_database_rows_with_values\` — one call, all rows, all values, still detached
+2. \`embed_database\` — \`convert_database_rows_to_documents\` needs the database block
+3. \`render_database\` — collect the row IDs
+4. \`convert_database_rows_to_documents\` — one call: SiYuan creates a document per row, named
+   from that row's primary key, rebinds the row to it, and keeps every value already on the row
+
+\`save_mode: "sub_doc"\` (the default) puts each document under the document holding the database;
+\`"template"\` uses the database's default row-creation template for location and body. Rows that
+are already bound are skipped and named in \`skipped_item_ids\` rather than counted as converted.
+Each chunk is one kernel transaction that undoes its own documents if it fails.
+
+**When the documents already exist**, use \`add_bound_database_rows_with_values\`: one call binds
+them all and writes their values. Row IDs come back in \`item_ids\`, keyed by block ID.
+
+A bound row takes its name from its document, so neither tool accepts a primary-key value.
+Writing one succeeds but only overrides the row's display text, leaving the row disagreeing with
+the title of the document it points at — rename the document instead.
+
+Note the direction of travel: this path is detached → bound. Neither tool goes the other way, so
+bind when the content warrants a document rather than counting on unbinding later.
+
 ## Building a database schema
 
 \`create_database\`'s primary key is auto-named "Primary Key" and placed first in the column order
