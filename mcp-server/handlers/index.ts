@@ -22,6 +22,9 @@ export * from './notebook.js';
 // 快照相关
 export * from './snapshot.js';
 
+// 使用指南
+export * from './guide.js';
+
 // 标签相关
 export * from './tag.js';
 
@@ -102,6 +105,7 @@ import {
   ListSnapshotsHandler,
   RollbackSnapshotHandler,
 } from './snapshot.js';
+import { GetUsageGuideHandler } from './guide.js';
 import {
   ListAllTagsHandler,
   ReplaceTagHandler,
@@ -184,6 +188,7 @@ export function createAllHandlers() {
 
     // 快照
     new CreateSnapshotHandler(),
+    new GetUsageGuideHandler(),
     new ListSnapshotsHandler(),
     new RollbackSnapshotHandler(),
 
