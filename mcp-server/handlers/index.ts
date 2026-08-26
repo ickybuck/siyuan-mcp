@@ -60,6 +60,7 @@ import {
 } from './block.js';
 import {
   CreateDatabaseHandler,
+  RenameDatabaseHandler,
   AddDatabaseFieldsHandler,
   AddDatabaseRowsWithValuesHandler,
   AddBoundDatabaseRowsWithValuesHandler,
@@ -146,6 +147,7 @@ export function createAllHandlers() {
 
     // 数据库
     new CreateDatabaseHandler(),
+    new RenameDatabaseHandler(),
     new AddDatabaseFieldsHandler(),
     new AddDatabaseRowsWithValuesHandler(),
     new AddBoundDatabaseRowsWithValuesHandler(),

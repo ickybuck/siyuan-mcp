@@ -159,6 +159,18 @@ detached with all their values, then convert the whole batch:
 are already bound are skipped and named in \`skipped_item_ids\` rather than counted as converted.
 Each chunk is one kernel transaction that undoes its own documents if it fails.
 
+**The conversion does not apply row-creation template defaults** — with either \`save_mode\`. The
+kernel clones each row's existing values and never reads the template's \`field_values\`; the
+template only ever supplies the save location and the body. So a database whose template sets, say,
+a "pending" checkbox produces converted rows with that checkbox unset, silently. That bites hardest
+where it is least visible: the rows being bulk-converted are usually the least finished ones, and
+they end up looking like the most finished ones. Pass \`apply_template_defaults\` to write the
+defaults afterward; without it, the response carries a warning whenever the database has templates
+with defaults. The documents themselves are created with empty bodies either way — if each row
+needs real content, \`create_database_row_from_template_with_markdown\` is the per-row alternative,
+or carry the reference in a *field* instead of a body, which stays queryable and survives someone
+editing the document.
+
 **When the documents already exist**, use \`add_bound_database_rows_with_values\`: one call binds
 them all and writes their values. Row IDs come back in \`item_ids\`, keyed by block ID.
 
@@ -170,6 +182,12 @@ Note the direction of travel: this path is detached → bound. Neither tool goes
 bind when the content warrants a document rather than counting on unbinding later.
 
 ## Building a database schema
+
+**Name the database.** \`create_database\` takes an optional \`name\`; without it SiYuan calls it
+"Untitled", and a workspace of databases all called Untitled is genuinely hard to navigate even
+though \`av_id\` is what everything binds to. \`rename_database\` fixes one afterward. Note the three
+different things that can be renamed here and the tool for each: the database (\`rename_database\`),
+one of its fields (\`update_database_field\`), and the document holding it (\`rename_document\`).
 
 \`create_database\`'s primary key is auto-named "Primary Key" and placed first in the column order
 when created with a \`fields\` schema — rename it with \`update_database_field\` if a more specific

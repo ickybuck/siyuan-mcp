@@ -49,15 +49,19 @@ const BLOCKID_NOOP_WARNING =
  * 创建游离数据库
  */
 export class CreateDatabaseHandler extends BaseToolHandler<
-  { fields?: Array<{ name: string; type: string; icon?: string }>; keep_default_select?: boolean },
+  { name?: string; fields?: Array<{ name: string; type: string; icon?: string }>; keep_default_select?: boolean },
   any
 > {
   readonly name = 'create_database';
   readonly annotations = { readOnlyHint: false, destructiveHint: false } as const;
-  readonly description = `Create a new SiYuan database (attribute view), optionally with its whole field schema in one call. Not yet embedded in any document — call embed_database afterward, which is required before filters, sorts, grouping or layout changes take effect. Always table layout with one primary-key column, placed first in the column order. A default Select column is created by SiYuan and removed automatically unless keep_default_select is set. The primary key is named "Primary Key" — rename it with update_database_field if needed. Field types: ${FIELD_TYPES_DESCRIPTION}`;
+  readonly description = `Create a new SiYuan database (attribute view), optionally with its whole field schema in one call. Not yet embedded in any document — call embed_database afterward, which is required before filters, sorts, grouping or layout changes take effect. Always table layout with one primary-key column, placed first in the column order. A default Select column is created by SiYuan and removed automatically unless keep_default_select is set. The primary key is named "Primary Key" — rename it with update_database_field if needed. Pass name to title the database; without it SiYuan shows it as "Untitled", and rename_database is the way to fix that later. Field types: ${FIELD_TYPES_DESCRIPTION}`;
   readonly inputSchema: JSONSchema = {
     type: 'object',
     properties: {
+      name: {
+        type: 'string',
+        description: 'Title for the database itself, shown above the embedded table. Omit and it stays "Untitled" — worth setting, since a workspace of identically named databases is hard to navigate.',
+      },
       fields: {
         type: 'array',
         description: 'Fields to create, in order. Omit to create a bare database.',
@@ -81,13 +85,40 @@ export class CreateDatabaseHandler extends BaseToolHandler<
 
   async execute(args: any, context: ExecutionContext): Promise<any> {
     if (!args.fields || args.fields.length === 0) {
-      const { avID, data } = await context.siyuan.av.createDatabase();
+      const { avID, data } = await context.siyuan.av.createDatabase(args.name);
       return { av_id: avID, data };
     }
     const r = await context.siyuan.av.createDatabaseWithSchema(args.fields, {
       keepDefaultSelect: args.keep_default_select,
+      name: args.name,
     });
     return { av_id: r.avID, primary_key_id: r.primaryKeyID, fields: r.fields };
+  }
+}
+
+/**
+ * 给数据库命名
+ */
+export class RenameDatabaseHandler extends BaseToolHandler<
+  { av_id: string; name: string },
+  { success: boolean; av_id: string; name: string }
+> {
+  readonly name = 'rename_database';
+  readonly annotations = { readOnlyHint: false, destructiveHint: false } as const;
+  readonly description =
+    'Set a SiYuan database\'s own title — the name shown above the embedded table, and the one SiYuan displays as "Untitled" when it has never been set. This is the database, not its fields (update_database_field renames those) and not the document holding it (rename_document does that). The name lives on the database, so every document embedding it picks up the change. Leading and trailing whitespace is trimmed, newlines become spaces, and SiYuan truncates past 512 characters.';
+  readonly inputSchema: JSONSchema = {
+    type: 'object',
+    properties: {
+      av_id: { type: 'string', description: 'Database ID' },
+      name: { type: 'string', description: 'New title for the database' },
+    },
+    required: ['av_id', 'name'],
+  };
+
+  async execute(args: any, context: ExecutionContext): Promise<{ success: boolean; av_id: string; name: string }> {
+    await context.siyuan.av.setAttributeViewName(args.av_id, args.name);
+    return { success: true, av_id: args.av_id, name: args.name.trim().replace(/\n/g, ' ') };
   }
 }
 
@@ -1391,12 +1422,20 @@ Row IDs are resolved from SiYuan's own block-to-row mapping rather than assumed 
  * 游离行批量转为绑定文档的行
  */
 export class ConvertDatabaseRowsToDocumentsHandler extends BaseToolHandler<
-  { av_id: string; block_id: string; item_ids: string[]; save_mode?: 'sub_doc' | 'template'; chunk_size?: number },
+  {
+    av_id: string;
+    block_id: string;
+    item_ids: string[];
+    save_mode?: 'sub_doc' | 'template';
+    chunk_size?: number;
+    apply_template_defaults?: boolean;
+    template_id?: string;
+  },
   { converted_item_ids: string[]; block_ids: string[]; skipped_item_ids: string[]; warnings: string[] }
 > {
   readonly name = 'convert_database_rows_to_documents';
   readonly annotations = { readOnlyHint: false, destructiveHint: false } as const;
-  readonly description = 'Turn existing detached rows into document-bound rows: SiYuan creates one real document per row, named from the row\'s primary key, and rebinds the row to it while keeping every cell value the row already had. This is the second half of the cheap bulk-import path — create the whole batch with add_database_rows_with_values (detached, one call, all values), then convert it here (one call) instead of creating and wiring each document separately. Rows that are already bound are skipped and reported in skipped_item_ids rather than counted as converted. Each chunk is one kernel transaction that rolls back its own created documents if it fails.';
+  readonly description = 'Turn existing detached rows into document-bound rows: SiYuan creates one real document per row, named from the row\'s primary key, and rebinds the row to it while keeping every cell value the row already had. This is the second half of the cheap bulk-import path — create the whole batch with add_database_rows_with_values (detached, one call, all values), then convert it here (one call) instead of creating and wiring each document separately. Rows that are already bound are skipped and reported in skipped_item_ids rather than counted as converted. Each chunk is one kernel transaction that rolls back its own created documents if it fails.\nThis path does NOT apply the database\'s row-creation template field defaults, with either save_mode — the kernel clones each row\'s existing values and never reads the template, which only ever supplies the save location and body. Rows converted here therefore lack any default the template would have set, silently. Pass apply_template_defaults to write them afterward; without it, a warning says so whenever the database has templates carrying defaults. The documents themselves are created with empty bodies either way.';
   readonly inputSchema: JSONSchema = {
     type: 'object',
     properties: {
@@ -1409,6 +1448,14 @@ export class ConvertDatabaseRowsToDocumentsHandler extends BaseToolHandler<
         description: '"sub_doc" (default) creates each document as a child of the document holding the database. "template" uses the database\'s default row-creation template (see configure_new_item_templates) for save location and body, falling back to SiYuan\'s default location when that template is not document-target.',
       },
       chunk_size: { type: 'number', description: 'Rows per kernel transaction. Defaults to 50. Only affects transaction size; each chunk is still atomic on its own.' },
+      apply_template_defaults: {
+        type: 'boolean',
+        description: 'Write the row-creation template\'s field defaults onto the converted rows afterward, which the conversion itself never does. Uses the database\'s default template unless template_id names another.',
+      },
+      template_id: {
+        type: 'string',
+        description: 'Which template\'s defaults to apply, when apply_template_defaults is set and the database has more than one and no default.',
+      },
     },
     required: ['av_id', 'block_id', 'item_ids'],
   };
@@ -1417,6 +1464,8 @@ export class ConvertDatabaseRowsToDocumentsHandler extends BaseToolHandler<
     const result = await context.siyuan.av.createItemDocs(args.av_id, args.block_id, args.item_ids, {
       saveMode: args.save_mode === 'template' ? 'template' : 'subDoc',
       chunkSize: args.chunk_size,
+      applyTemplateDefaults: args.apply_template_defaults,
+      templateID: args.template_id,
     });
     return {
       converted_item_ids: result.itemIDs,
