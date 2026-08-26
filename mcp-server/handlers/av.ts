@@ -510,6 +510,45 @@ export class EmbedDatabaseHandler extends BaseToolHandler<
 }
 
 /**
+ * 把渲染结果裁剪到指定字段。
+ *
+ * 内核没有"只取某几列"的读法：render 一次就是整行整表，行里带正文的数据库读一格
+ * 也要拖上全部长文本。裁剪放在这一层，省的是回到调用方的那份 payload，也就是真正
+ * 花钱的那份。
+ *
+ * 递归处理是为了覆盖分组视图：cells/values 出现在 rows、cards、groups 里各一份，
+ * 按 keyID 过滤比按已知结构逐个处理更不容易漏。列定义同样裁剪——它们本身在九列的
+ * 数据库上就有一两千 token 的固定开销。
+ *
+ * 刻意不看视图的 hidden 标记：那会让同一个调用因为解析到哪个视图而返回不同的数据，
+ * 把 API 的返回量绑在别人的界面偏好上。要哪几列就明写哪几列。
+ */
+function pruneRenderedToFields(node: any, allowed: Set<string>): any {
+  if (Array.isArray(node)) {
+    return node.map((item) => pruneRenderedToFields(item, allowed));
+  }
+  if (!node || typeof node !== 'object') {
+    return node;
+  }
+
+  const out: any = {};
+  for (const [key, value] of Object.entries(node)) {
+    if ((key === 'cells' || key === 'values') && Array.isArray(value)) {
+      out[key] = value
+        .filter((cell: any) => !cell?.value?.keyID || allowed.has(cell.value.keyID))
+        .map((cell: any) => pruneRenderedToFields(cell, allowed));
+      continue;
+    }
+    if ((key === 'columns' || key === 'fields') && Array.isArray(value)) {
+      out[key] = value.filter((column: any) => !column?.id || allowed.has(column.id));
+      continue;
+    }
+    out[key] = pruneRenderedToFields(value, allowed);
+  }
+  return out;
+}
+
+/**
  * 渲染数据库视图
  */
 export class RenderDatabaseHandler extends BaseToolHandler<
@@ -522,12 +561,13 @@ export class RenderDatabaseHandler extends BaseToolHandler<
     query?: string;
     target_item_id?: string;
     target_group_id?: string;
+    fields?: string[];
   },
   any
 > {
   readonly name = 'render_database';
   readonly annotations = { readOnlyHint: true } as const;
-  readonly description = 'Read a database\'s computed rows/cards for one view, with pagination. This is the primary read endpoint — use it to discover row IDs (rows[].id for table, cards[].id for gallery/kanban) needed for set_database_cell, add/remove rows, etc. Omit block_id when reading a detached database.';
+  readonly description = 'Read a database\'s computed rows/cards for one view, with pagination. This is the primary read endpoint — use it to discover row IDs (rows[].id for table, cards[].id for gallery/kanban) needed for set_database_cell, add/remove rows, etc. Omit block_id when reading a detached database. Pass fields to return only the columns you need: on a database whose rows carry long text, an all-columns read costs many times what the answer needs, which is how checking your own work quietly becomes too expensive to do.';
   readonly inputSchema: JSONSchema = {
     type: 'object',
     properties: {
@@ -539,12 +579,18 @@ export class RenderDatabaseHandler extends BaseToolHandler<
       query: { type: 'string', description: 'Optional full-text filter on primary-key values' },
       target_item_id: { type: 'string', description: 'Optional item ID to locate; response includes its location metadata' },
       target_group_id: { type: 'string', description: 'Optional group hint used with target_item_id' },
+      fields: {
+        type: 'array',
+        items: { type: 'string' },
+        description:
+          'Return only these columns — field IDs, or exact field names (case-insensitive). Column definitions are trimmed to match, not just the cells. Row/card IDs are always returned, so the primary key is only needed here if you want to read it. Omit for every column. This is independent of any view\'s hidden-column settings, which do not affect what the kernel returns.',
+      },
     },
     required: ['av_id'],
   };
 
   async execute(args: any, context: ExecutionContext): Promise<any> {
-    return await context.siyuan.av.renderAttributeView(args.av_id, {
+    const rendered = await context.siyuan.av.renderAttributeView(args.av_id, {
       blockID: args.block_id,
       viewID: args.view_id,
       page: args.page,
@@ -554,6 +600,38 @@ export class RenderDatabaseHandler extends BaseToolHandler<
       targetGroupID: args.target_group_id,
       createIfNotExist: false,
     });
+
+    if (!args.fields?.length) {
+      return rendered;
+    }
+
+    const columns: any[] = rendered?.view?.columns || rendered?.view?.fields || [];
+    const byID = new Map<string, string>();
+    const byName = new Map<string, string>();
+    for (const column of columns) {
+      if (!column?.id) continue;
+      byID.set(column.id, column.id);
+      if (column.name) byName.set(String(column.name).trim().toLowerCase(), column.id);
+    }
+
+    const allowed = new Set<string>();
+    const unknown: string[] = [];
+    for (const wanted of args.fields) {
+      const key = String(wanted).trim();
+      const resolved = byID.get(key) ?? byName.get(key.toLowerCase());
+      if (resolved) allowed.add(resolved);
+      else unknown.push(key);
+    }
+
+    if (unknown.length) {
+      const available = columns.map((c: any) => `"${c.name}" (${c.id})`).join(', ');
+      throw new Error(
+        `Unknown field${unknown.length > 1 ? 's' : ''} ${unknown.map((u) => `"${u}"`).join(', ')} in fields. ` +
+          `Silently returning fewer columns than asked for would look identical to a column being empty, so this fails instead. Available: ${available}.`
+      );
+    }
+
+    return pruneRenderedToFields(rendered, allowed);
   }
 }
 

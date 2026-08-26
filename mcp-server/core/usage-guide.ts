@@ -38,6 +38,19 @@ discovery path for every block tool.
 source including its attributes, \`unified_search\` to find things, \`get_document_tree\` for
 structure.
 
+**Reading a database without dragging its text along.** \`render_database\` returns every column of
+every matched row unless you pass \`fields\`, which limits it to the columns named — by field ID or
+exact field name, trimming the column definitions to match as well. On a database whose rows carry
+real prose this is the difference between a status check and a full re-read: checking one field of
+one row otherwise pulls every long text field on that row. Read cheaply enough that verifying your
+own work stays worth doing.
+
+Two things not to assume here. Hiding a column in a view does **not** shrink what the kernel
+returns — the hidden flag is presentation-only, and \`fields\` is deliberately independent of it, so
+the same call returns the same data whichever view it resolves. And \`get_database\` is a schema
+tool that carries every cell value of every row along with the schema; it is not the cheap read it
+looks like. For primary keys alone, \`get_database_primary_key_values\` is cheaper than either.
+
 **Databases.** \`render_database\` is the main read: it returns computed rows and the row IDs that
 every write tool needs. \`get_database\` returns the schema and raw view config but no rows.
 \`add_database_rows_with_values\` creates rows; to correct or update rows that already exist, use
