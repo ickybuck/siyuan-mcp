@@ -333,6 +333,12 @@ new document's body instead — the one to use when each row's content should be
 (e.g. an AI-written brief from a fixed structural template) rather than starting from identical
 boilerplate every time. It only works with a document-target template.
 
+A template's \`primary_key_template\` wins over the per-row \`title\`. SiYuan falls back to \`title\`
+only when \`primary_key_template\` is empty, so a template that sets both names every row alike
+while their bodies still differ, with no error anywhere. Supplying both is rejected up front
+rather than silently ignored; omit \`title\` to accept the generated name, or clear
+\`primary_key_template\` on that template.
+
 A document-target template creates each row's document as a **child of the document holding the
 database**, unless the template's own save location says otherwise. So removing the host document
 removes those row documents with it — there is no need to delete them separately, and trying to

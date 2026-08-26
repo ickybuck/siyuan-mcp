@@ -22,6 +22,20 @@ const CELL_VALUE_DESCRIPTION =
   'Pass null or "" to clear a value. ' +
   'SiYuan\'s verbose Value structs (e.g. {"number":{"content":42,"isNotEmpty":true}}) are still accepted unchanged as an escape hatch.';
 
+/**
+ * 单元格值是多态的：它的形状取决于字段类型，所以不能固定成某一个 type。
+ * 但完全省略 type 也不行——客户端没有任何类型信号时可能会把对象序列化成字符串再发过来，
+ * 于是逐字 JSON 被当成文本写进单元格。用一个宽松的 anyOf 明确声明"对象也是合法参数"。
+ */
+const CELL_VALUE_TYPES = [
+  { type: 'string' },
+  { type: 'number' },
+  { type: 'boolean' },
+  { type: 'array' },
+  { type: 'object' },
+  { type: 'null' },
+];
+
 const FIELD_TYPES_DESCRIPTION =
   'text, number, date, select, mSelect, url, email, phone, mAsset, template, created, updated, checkbox, relation, rollup, lineNumber. ' +
   'Note: relation and rollup fields are created inert and must then be wired up with configure_relation_field / configure_rollup_field before they work. ' +
@@ -437,7 +451,7 @@ export class SetDatabaseCellsHandler extends BaseToolHandler<
           properties: {
             item_id: { type: 'string', description: 'Row ID from render_database' },
             key_id: { type: 'string', description: 'Field (column) ID' },
-            value: { description: 'Cell value; see the tool description for accepted forms' },
+            value: { anyOf: CELL_VALUE_TYPES, description: 'Cell value; see the tool description for accepted forms' },
           },
           required: ['item_id', 'key_id', 'value'],
         },
@@ -632,7 +646,7 @@ export class SetDatabaseCellHandler extends BaseToolHandler<
       av_id: { type: 'string', description: 'Database ID' },
       key_id: { type: 'string', description: 'Field (column) ID being updated' },
       item_id: { type: 'string', description: 'Row ID, from render_database rows[].id or cards[].id' },
-      value: { description: CELL_VALUE_DESCRIPTION },
+      value: { anyOf: CELL_VALUE_TYPES, description: CELL_VALUE_DESCRIPTION },
     },
     required: ['av_id', 'key_id', 'item_id', 'value'],
   };
@@ -1058,7 +1072,7 @@ ${NEW_ITEM_FIELD_VALUE_DESCRIPTION}`;
             name: { type: 'string', description: 'Display name shown when picking a template' },
             icon: { type: 'string', description: 'Optional emoji icon' },
             target_type: { type: 'string', enum: ['detached', 'document'], description: '"detached" pre-fills field defaults only; "document" also creates and binds a real document per row' },
-            primary_key_template: { type: 'string', description: 'Optional default text for the primary-key field on new rows, e.g. "Untitled"' },
+            primary_key_template: { type: 'string', description: 'Optional default text for the primary-key field on new rows, e.g. "Untitled". Applies to EVERY row created from this template and takes precedence over the per-row title argument of create_database_row_from_template_with_markdown, which SiYuan only falls back to when this is empty — leave it unset for any template whose rows should carry their own titles.' },
             field_values: { type: 'object', description: NEW_ITEM_FIELD_VALUE_DESCRIPTION },
             save_location: {
               type: 'object',
@@ -1139,6 +1153,32 @@ export class CreateDatabaseRowFromTemplateHandler extends BaseToolHandler<
 }
 
 /**
+ * 内核只在模板的 primaryKeyTemplate 为空时才使用调用方传入的 title，见
+ * kernel/model/attribute_view_new_item.go：两者同时给出时 title 被静默丢弃，
+ * 整批条目会得到同一个名字，正文却是对的——没有任何报错。与未知字段 ID、缺失主键
+ * 同一类失败，所以照同样的做法在写之前拦下来。
+ */
+async function assertTitleNotOverriddenByTemplate(
+  avID: string,
+  templateID: string,
+  title: string,
+  context: ExecutionContext
+): Promise<void> {
+  const attributeView = await context.siyuan.av.getAttributeView(avID);
+  const templates: any[] = attributeView?.newItemTemplates ?? [];
+  const template = templates.find((t: any) => t?.id === templateID);
+  const primaryKeyTemplate = String(template?.primaryKeyTemplate ?? '').trim();
+  if (!primaryKeyTemplate) {
+    return;
+  }
+  throw new Error(
+    `Template ${templateID} sets primary_key_template to "${primaryKeyTemplate}", which SiYuan applies to every row created from it. ` +
+      `The title "${title}" would be discarded without an error, naming every row alike while their bodies differ. ` +
+      'Either omit title and accept the template-generated name, or clear primary_key_template on that template with configure_new_item_templates.'
+  );
+}
+
+/**
  * 按 document 类型模板创建数据库条目，并提供自定义 Markdown 正文
  */
 export class CreateDatabaseRowFromTemplateWithMarkdownHandler extends BaseToolHandler<
@@ -1146,7 +1186,7 @@ export class CreateDatabaseRowFromTemplateWithMarkdownHandler extends BaseToolHa
     av_id: string;
     block_id: string;
     template_id: string;
-    title: string;
+    title?: string;
     markdown: string;
     view_id?: string;
     previous_id?: string;
@@ -1167,7 +1207,7 @@ export class CreateDatabaseRowFromTemplateWithMarkdownHandler extends BaseToolHa
       av_id: { type: 'string', description: 'Database ID' },
       block_id: { type: 'string', description: 'The database block embedding this database, from embed_database' },
       template_id: { type: 'string', description: 'A document-target template\'s id, from configure_new_item_templates\'s response' },
-      title: { type: 'string', description: 'Title of the new bound document (also becomes the row\'s primary-key text)' },
+      title: { type: 'string', description: 'Title of the new bound document, which also becomes the row\'s primary-key text. SiYuan uses it only when the template\'s primary_key_template is empty, so passing both is rejected rather than silently ignored. Omit to accept the name the template generates.' },
       markdown: { type: 'string', description: 'Markdown content for the new document\'s body' },
       view_id: { type: 'string', description: 'Target view. Omit to use the first available view.' },
       previous_id: { type: 'string', description: 'Row ID to insert the new row directly after. Omit to append at the end.' },
@@ -1177,10 +1217,13 @@ export class CreateDatabaseRowFromTemplateWithMarkdownHandler extends BaseToolHa
       clipping_href: { type: 'string', description: 'Optional source URL, if this document was clipped from the web' },
       list_doc_tree: { type: 'boolean', description: 'List the new document in its notebook\'s document tree' },
     },
-    required: ['av_id', 'block_id', 'template_id', 'title', 'markdown'],
+    required: ['av_id', 'block_id', 'template_id', 'markdown'],
   };
 
   async execute(args: any, context: ExecutionContext): Promise<{ item_id: string; block_id: string; content: string; is_detached: boolean; warnings?: string[] }> {
+    if (args.title) {
+      await assertTitleNotOverriddenByTemplate(args.av_id, args.template_id, args.title, context);
+    }
     const r = await context.siyuan.av.createRowFromTemplateWithMarkdown(
       args.av_id,
       args.block_id,
