@@ -399,6 +399,13 @@ Values written to it go nowhere and no error is raised. Wire it up:
 
 Migrating databases that reference each other in the wrong order silently loses the links.
 
+That ordering is now enforced rather than merely advised: a rollup through a field that is not a
+configured relation is rejected, as is a summarised field that does not exist in the related
+database. SiYuan itself accepts both and simply never resolves the rollup, which looks exactly
+like the inert shell \`configure_rollup_field\` exists to fix. Options written to a field that is
+not select/mSelect are rejected for the same reason — the kernel stores them, where they do
+nothing.
+
 ## Why writes here can succeed without happening
 
 Some of SiYuan's configuration operations have no REST endpoint and go through
