@@ -399,6 +399,20 @@ Values written to it go nowhere and no error is raised. Wire it up:
 
 Migrating databases that reference each other in the wrong order silently loses the links.
 
+## Why writes here can succeed without happening
+
+Some of SiYuan's configuration operations have no REST endpoint and go through
+\`/api/transactions\`, which **queues** the work and answers \`code: 0\` before running it. The
+queue reports failures to the SiYuan interface, never to the caller. A success response from
+anything transaction-backed therefore means "accepted", not "done" — and no amount of care
+reading that response can tell the difference.
+
+The tools built on those operations — \`update_database_field\`, \`configure_select_options\`,
+\`configure_relation_field\`, \`configure_rollup_field\`, \`configure_new_item_templates\` — read the
+database back after writing and raise an error if the change is not there. So their success
+means the change is real. Anywhere else, treat a success response as a claim to check: read
+back what you wrote.
+
 ## Failure modes that are silent
 
 These fail without raising an error, so they are worth knowing rather than discovering:
