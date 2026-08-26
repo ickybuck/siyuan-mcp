@@ -348,7 +348,18 @@ the templates themselves can be configured on a detached database.
 This call **replaces the whole template set**, not a merge — read \`newItemTemplates\` back from
 \`get_database\` first if amending rather than replacing. select/mSelect default values must
 already exist as options on the field (\`configure_select_options\` first); unlike a normal cell
-write, an unknown option here is rejected rather than created.
+write, an unknown option here is rejected rather than created — and SiYuan throws away *every*
+template in the call over one missing option, not just the offending default. Seed the options
+first, then configure the templates. That ordering matters most on a database you just created,
+where a fresh select field has no options at all yet.
+
+Template writes go through SiYuan's transaction queue, which returns success as soon as the
+request is queued and reports failures only to the SiYuan interface — a rejection is invisible to
+the caller. This tool therefore checks the field defaults itself before writing and reads the
+template set back afterward, so a discarded write raises an error instead of returning ids for
+templates that do not exist. If one ever slips through, the symptom shows up a call later as
+\`new item template [id] not found\` from \`create_database_row_from_template*\`, which names the
+wrong operation — the configure call is what failed.
 
 A "document" template's \`content_template_path\` is **not** a document ID or path in the notebook
 tree — it resolves against the workspace's \`data/templates/\` folder, SiYuan's own template-file

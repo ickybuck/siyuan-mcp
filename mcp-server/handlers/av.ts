@@ -1033,7 +1033,7 @@ export class SortDatabaseViewFieldHandler extends BaseToolHandler<
 const NEW_ITEM_FIELD_VALUE_DESCRIPTION =
   'Default value for this field on rows created from the template. { value: <plain form value> } for a fixed default (same plain forms as set_database_cell — see that tool\'s description), ' +
   'or { mode: "current_time" } for a date field to default to the creation time. ' +
-  'select/mSelect defaults must already exist as options on the field (configure_select_options first) — unlike a normal cell write, this does not create them implicitly.';
+  'select/mSelect defaults must already exist as options on the field (configure_select_options first) — unlike a normal cell write, this does not create them implicitly, and SiYuan discards the entire template set if one is missing. That is checked here before the write, along with the field type: only text, number, date, select, mSelect, url, email, phone, mAsset, checkbox and relation fields can carry a default, and current_time only on a date field.';
 
 /**
  * 设置数据库新增条目模板
@@ -1059,7 +1059,7 @@ export class ConfigureNewItemTemplatesHandler extends BaseToolHandler<
   readonly name = 'configure_new_item_templates';
   readonly annotations = { readOnlyHint: false, destructiveHint: true } as const;
   readonly description = `Set the row-creation templates for a SiYuan database — the equivalent of Notion's page templates. A "detached" template only pre-fills field default values; a "document" template additionally binds new rows to a real document, with its body taken from content_template_path (unless overridden per-row via create_database_row_from_template_with_markdown) and saved per save_location.
-REPLACES THE WHOLE SET, not a merge: templates omitted from this call are dropped. To amend an existing configuration, read newItemTemplates back from get_database first and include everything that should still exist. Templates without an explicit id get one generated and returned in template_ids (keyed by name) — pass that id back as id on a later call to update the same template in place, or as default_template_id.
+REPLACES THE WHOLE SET, not a merge: templates omitted from this call are dropped. To amend an existing configuration, read newItemTemplates back from get_database first and include everything that should still exist. Templates without an explicit id get one generated and returned in template_ids (keyed by name) — pass that id back as id on a later call to update the same template in place, or as default_template_id. The returned ids are read back from SiYuan after the write, so they name templates that actually exist; if the write did not land, this call raises an error rather than returning ids for templates that were never stored.
 ${NEW_ITEM_FIELD_VALUE_DESCRIPTION}`;
   readonly inputSchema: JSONSchema = {
     type: 'object',
