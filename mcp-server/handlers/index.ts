@@ -40,6 +40,7 @@ import {
   RenameDocumentHandler,
   SetDocSortModeHandler,
   SetSortHandler,
+  SaveDocumentAsTemplateHandler,
 } from './document.js';
 import {
   GetBlockKramdownHandler,
@@ -122,6 +123,7 @@ export function createAllHandlers() {
     new RenameDocumentHandler(),
     new SetDocSortModeHandler(),
     new SetSortHandler(),
+    new SaveDocumentAsTemplateHandler(),
 
     // 块
     new GetBlockKramdownHandler(),

@@ -31,6 +31,37 @@ export class SiyuanDocumentApi {
   }
 
   /**
+   * 将已有文档另存为内容模板（写入 <workspace>/data/templates/<name>.md），
+   * 用于 configure_new_item_templates 的 content_template_path。
+   *
+   * 返回的 path 是按内核的命名规则推算出来的（name + ".md"，超长文件名会被内核
+   * 截断）；如果 content_template_path 传入这个值后仍报 "not found"，说明名字触发
+   * 了截断或字符过滤，需要用更短、更简单的 name 重试。
+   *
+   * @param documentID 作为模板内容来源的文档 ID
+   * @param name 模板名（不含扩展名）
+   * @param overwrite 同名模板已存在时是否覆盖，默认 false
+   */
+  async saveAsTemplate(documentID: string, name: string, overwrite = false): Promise<{ path: string }> {
+    const response = await this.client.request('/api/template/docSaveAsTemplate', {
+      id: documentID,
+      name,
+      overwrite,
+    });
+
+    if (response.code === 1) {
+      throw new Error(
+        `A template named "${name}" already exists in data/templates/ and overwrite was not set. Pass overwrite: true to replace it, or pick a different name.`
+      );
+    }
+    if (response.code !== 0) {
+      throw new Error(`Failed to save document as template: ${response.msg}`);
+    }
+
+    return { path: `${name}.md` };
+  }
+
+  /**
    * 删除文档
    * @param notebookId 笔记本 ID
    * @param path 文档路径

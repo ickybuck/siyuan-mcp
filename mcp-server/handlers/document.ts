@@ -340,6 +340,31 @@ export class RemoveDocumentHandler extends BaseToolHandler<
 }
 
 /**
+ * 将文档另存为内容模板
+ */
+export class SaveDocumentAsTemplateHandler extends BaseToolHandler<
+  { document_id: string; name: string; overwrite?: boolean },
+  { path: string }
+> {
+  readonly name = 'save_document_as_template';
+  readonly annotations = { readOnlyHint: false, destructiveHint: false } as const;
+  readonly description = 'Save an existing document as a reusable content template, written to data/templates/<name>.md in the workspace. This is what content_template_path on configure_new_item_templates points at — write a document with the structure a new database row\'s body should start from, then save it as a template here, then reference the returned path when configuring a "document"-target row-creation template.';
+  readonly inputSchema: JSONSchema = {
+    type: 'object',
+    properties: {
+      document_id: { type: 'string', description: 'The document whose content becomes the template' },
+      name: { type: 'string', description: 'Template name, without a file extension' },
+      overwrite: { type: 'boolean', description: 'Replace an existing template of the same name. Defaults to false, which errors instead of silently overwriting.' },
+    },
+    required: ['document_id', 'name'],
+  };
+
+  async execute(args: any, context: ExecutionContext): Promise<{ path: string }> {
+    return await context.siyuan.document.saveAsTemplate(args.document_id, args.name, args.overwrite ?? false);
+  }
+}
+
+/**
  * 根据ID重命名文档
  */
 export class RenameDocumentHandler extends BaseToolHandler<

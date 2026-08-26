@@ -320,6 +320,12 @@ This call **replaces the whole template set**, not a merge — read \`newItemTem
 already exist as options on the field (\`configure_select_options\` first); unlike a normal cell
 write, an unknown option here is rejected rather than created.
 
+A "document" template's \`content_template_path\` is **not** a document ID or path in the notebook
+tree — it resolves against the workspace's \`data/templates/\` folder, SiYuan's own template-file
+mechanism, unrelated to regular documents. Write a document with the structure a new row's body
+should start from, then call \`save_document_as_template\` to turn it into a template file, and
+pass the path it returns as \`content_template_path\`.
+
 To use a template: \`create_database_row_from_template\` creates a row from it (or a blank row if
 no template is given), reusing a "document" template's own content unchanged.
 \`create_database_row_from_template_with_markdown\` does the same but takes fresh markdown for the
