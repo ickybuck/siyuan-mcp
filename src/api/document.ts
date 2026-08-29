@@ -256,15 +256,53 @@ export class SiyuanDocumentApi {
     });
     const selfRow = (selfResponse.data || [])[0];
 
+    // id 不是文档时，这里原本直接把它当笔记本 ID 用；传错 ID（例如把数据库的
+    // av_id 当成文档 ID）就会查到一个不存在的 box，返回空数组，看起来像"这个文档
+    // 没有子文档"。空结果和"ID 不对"必须分得开，否则又是一次静默误报。
+    if (!selfRow) {
+      const notebooks = await this.client.request<{ notebooks?: Array<{ id: string }> }>(
+        '/api/notebook/lsNotebooks'
+      );
+      const isNotebook = (notebooks.data?.notebooks || []).some((n) => n.id === id);
+      if (!isNotebook) {
+        throw new Error(
+          `"${id}" is neither a document nor a notebook, so it has no document tree. An empty result would be indistinguishable from a document with no children, so this fails instead. Note that a database's av_id is not a document ID — use the ID of the document the database is embedded in.`
+        );
+      }
+    }
+
     // id 是文档：box 取该文档所在笔记本，锚点路径为该文档自身（去掉 .sy 后缀）
     // id 是笔记本：box 就是 id 本身，锚点路径为空（笔记本根目录）
     const box = selfRow ? selfRow.box : id;
     const anchorPath: string = selfRow ? String(selfRow.path).replace(/\.sy$/, '') : '';
     const prefix = `${anchorPath}/`;
 
-    const allResponse = await this.client.request<any[]>('/api/query/sql', {
-      stmt: `SELECT id, path, hpath, content FROM blocks WHERE type = 'd' AND box = '${box}'`,
-    });
+    // 两处都要紧，缺一个就会静默少报（PF-33）：
+    // 1. 前缀过滤放进 SQL。原先是把整个笔记本的文档都取回来再在内存里筛，
+    //    结果内核的行数上限先砍在"整个笔记本"那一层，跟这次要找的子树无关。
+    // 2. 显式分页。/api/query/sql 对没有 LIMIT 的语句套用 Conf.Search.Limit
+    //    （默认 64）且不作任何提示，所以"没写 LIMIT"不等于"不限行数"，而是
+    //    "限 64 行且不告诉你"。实测：某笔记本 181 篇文档，无 LIMIT 返回 64。
+    const escapedPrefix = prefix.replace(/'/g, "''");
+    const pageSize = 512;
+    const rows: any[] = [];
+    for (let offset = 0; ; offset += pageSize) {
+      const pageResponse = await this.client.request<any[]>('/api/query/sql', {
+        stmt:
+          `SELECT id, path, hpath, content FROM blocks WHERE type = 'd' AND box = '${box}' ` +
+          `AND path LIKE '${escapedPrefix}%' ORDER BY path LIMIT ${pageSize} OFFSET ${offset}`,
+      });
+
+      if (pageResponse.code !== 0) {
+        throw new Error(`Failed to get document tree: ${pageResponse.msg}`);
+      }
+
+      const page = pageResponse.data || [];
+      rows.push(...page);
+      if (page.length < pageSize) break;
+    }
+
+    const allResponse = { code: 0, msg: '', data: rows };
 
     if (allResponse.code !== 0) {
       throw new Error(`Failed to get document tree: ${allResponse.msg}`);
