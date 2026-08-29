@@ -1,0 +1,8 @@
+# TypeScript sources are text. Two stray NUL bytes in src/api/av.ts once made git
+# treat it as binary, which meant no diffs and a merge conflict that could not be
+# resolved normally. The bytes are gone; this keeps the classification from
+# depending on file content.
+*.ts text
+*.js text
+*.json text
+*.md text

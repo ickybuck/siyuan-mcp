@@ -454,12 +454,23 @@ export class ListUnusedDatabasesHandler extends BaseToolHandler<Record<string, n
 export class RemoveUnusedDatabasesHandler extends BaseToolHandler<Record<string, never>, { success: boolean }> {
   readonly name = 'remove_unused_databases';
   readonly annotations = { readOnlyHint: false, destructiveHint: true } as const;
-  readonly description = 'Permanently delete every database not embedded in any document. Irreversible — run list_unused_databases first to see what will go, and create_snapshot before running it. Note that a database you just created but have not yet embedded counts as unused, so do not run this in the middle of building one.';
-  readonly inputSchema: JSONSchema = { type: 'object', properties: {}, required: [] };
+  readonly description =
+    'Permanently delete the named databases, which must currently be unembedded. Irreversible — run list_unused_databases first and pass the ids you mean; create_snapshot beforehand is cheap insurance. There is deliberately no "delete everything unused" form: a database counts as unused for the moment between being created and being embedded, so a blanket sweep destroys whatever another session is midway through building, and the victim sees no error — only a later failure on an id that no longer exists. Every id is re-checked against the current unused list, and if any is not on it the whole call is refused without deleting anything, since that means the list being worked from is stale.';
+  readonly inputSchema: JSONSchema = {
+    type: 'object',
+    properties: {
+      av_ids: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Database IDs to delete, from list_unused_databases. Required — there is no form of this call that deletes everything unused.',
+      },
+    },
+    required: ['av_ids'],
+  };
 
-  async execute(_args: any, context: ExecutionContext): Promise<{ success: boolean }> {
-    await context.siyuan.av.removeUnusedAttributeViews();
-    return { success: true };
+  async execute(args: any, context: ExecutionContext): Promise<{ success: boolean; removed: string[] }> {
+    const { removed } = await context.siyuan.av.removeUnusedAttributeViews(args.av_ids);
+    return { success: true, removed };
   }
 }
 
