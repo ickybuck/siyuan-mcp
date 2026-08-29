@@ -11,8 +11,13 @@ coverage/
 
 # Environment variables
 .env
+.env.*
+!.env.example
 .env.local
 .env.*.local
+
+# Claude Code local (per-developer) settings; .claude/settings.json IS committed
+.claude/settings.local.json
 
 # Editor directories and files
 .vscode/*

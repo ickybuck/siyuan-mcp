@@ -504,6 +504,25 @@ import type {
 } from '@porkll/siyuan-mcp';
 ```
 
+## 🤝 Getting started for a new collaborator
+
+This fork is maintained by two developers working asynchronously, from separate Claude Code
+accounts, never at the same time. Neither can see the other's session history, so two files carry
+everything that is not in the diff:
+
+- **[CLAUDE.md](./CLAUDE.md)** — how the project is laid out, which commands actually work (and
+  which look like they should but do not), the conventions to follow, and the working agreement:
+  pull, branch, PR, update the log.
+- **[NOTES.md](./NOTES.md)** — the running handoff log, newest first. Read the top entry before
+  starting, and add one before you stop — including whatever you tried that did not work.
+
+Short version: `npm install`, then `npm run build`. Neither `npm test` nor `npm run lint`
+currently runs clean on a fresh clone — see CLAUDE.md for what is wrong with each — so
+`npm run build` is the check to run before committing. Work on a branch: pushing to `main` builds
+and publishes a container image.
+
+---
+
 ## 💻 Development
 
 ### Setup
