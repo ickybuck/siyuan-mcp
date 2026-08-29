@@ -1479,18 +1479,53 @@ export class SiyuanAvApi {
 
   /**
    * 添加字段（列）
+   *
+   * 内核这个操作有两处与工具描述不符，都在 kernel/model/attribute_view.go 的
+   * addAttributeViewKey 里（PF-40）：
+   *  1. 只往 KeyValues 里追加，从不更新 attrView.KeyIDs——全局字段顺序表因此漏掉这个
+   *     字段。按 keyIDs 遍历的消费者根本看不到这一列，尽管它存在且有数据。
+   *  2. previousKeyID 为空时，表格视图是把新列插到最前面（第 7052 行的 append 到
+   *     切片头部），也就是落在主键左边；只有卡片/看板视图才追加到末尾。
+   * 两处都不报错。这里的做法是：调用方没有指定位置时，主动以"当前最后一个字段"为锚点，
+   * 落库后再把全局顺序和视图内顺序各排一次，让结果与描述里说的"追加"一致。
+   *
+   * 同名同类型的字段直接拒绝（PF-39）。曾经出现过一次调用产生两个同名字段的情况，
+   * 起因没能复现——但不论起因是什么，重试安全都该由这里保证：报错里带上已存在字段的
+   * ID，重试方直接拿来用即可。同名字段最坏的地方是按名字寻址从此有歧义，而
+   * render_database 按名字取列只会返回其中一个，看起来一切正常。
+   *
    * @param avID 数据库 ID
    * @param keyName 字段名
    * @param keyType 字段类型
-   * @param options keyIcon（图标）、previousKeyID（插入到该字段之后）
+   * @param options keyIcon（图标）、previousKeyID（插入到该字段之后）、
+   *                allowDuplicateName（明确允许重名时才跳过上面的拒绝）
    * @returns 新字段的 ID
    */
   async addAttributeViewKey(
     avID: string,
     keyName: string,
     keyType: AvKeyType,
-    options: { keyIcon?: string; previousKeyID?: string } = {}
+    options: { keyIcon?: string; previousKeyID?: string; allowDuplicateName?: boolean } = {}
   ): Promise<string> {
+    const before = await this.getAttributeView(avID);
+    const existingKeys: any[] = (before.keyValues || []).map((kv: any) => kv?.key).filter(Boolean);
+
+    if (!options.allowDuplicateName) {
+      const clash = existingKeys.find((k) => k.name === keyName && k.type === keyType);
+      if (clash) {
+        throw new Error(
+          `Field "${keyName}" of type "${keyType}" already exists on this database as ${clash.id}. ` +
+            `Adding a second one is refused because two fields sharing a name make every later write addressed by name ambiguous, ` +
+            `and render_database's fields filter matches by name and would return only one of them — so the duplicate is invisible to the obvious check. ` +
+            `Use ${clash.id} if this is the field you meant, update_database_field to rename, or pass allow_duplicate_name if two really are wanted.`
+        );
+      }
+    }
+
+    // 内核对空 previousKeyID 的处理是"插到最前面"，与描述相反，所以自己挑锚点
+    const anchor =
+      options.previousKeyID ?? (existingKeys.length ? existingKeys[existingKeys.length - 1].id : '');
+
     const keyID = newNodeId();
     const response = await this.client.request('/api/av/addAttributeViewKey', {
       avID,
@@ -1498,12 +1533,27 @@ export class SiyuanAvApi {
       keyName,
       keyType,
       keyIcon: options.keyIcon ?? '',
-      previousKeyID: options.previousKeyID ?? '',
+      previousKeyID: anchor,
     });
 
     if (response.code !== 0) {
       throw new Error(`Failed to add field: ${response.msg}`);
     }
+
+    // keyIDs 不会被上面的调用更新，排一次序把它补上；视图内顺序同理，两者互相独立
+    await this.sortAttributeViewKey(avID, keyID, anchor);
+    await this.sortAttributeViewViewKey(avID, '', keyID, anchor);
+
+    await this.confirmApplied(
+      `add the field "${keyName}" to database ${avID}`,
+      async () => {
+        const after = await this.getAttributeView(avID);
+        const present = (after.keyValues || []).some((kv: any) => kv?.key?.id === keyID);
+        const ordered = (after.keyIDs || []).includes(keyID);
+        return present && ordered;
+      },
+      'The field may exist while missing from the database\'s keyIDs ordering — a consumer iterating keyIDs would not see it.'
+    );
 
     return keyID;
   }
