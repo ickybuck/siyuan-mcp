@@ -726,19 +726,34 @@ export class SearchDatabasesHandler extends BaseToolHandler<
 > {
   readonly name = 'search_databases';
   readonly annotations = { readOnlyHint: true } as const;
-  readonly description = 'Search SiYuan databases by name.';
+  readonly description =
+    'Look a SiYuan database up by name. Use it to find one database from a distinctive term — NOT to enumerate or audit them. SiYuan caps this search at 12 results, a fixed limit in the kernel with no total and no paging, so a broad keyword silently returns a subset and an absent database is not evidence it does not exist. The response says so: `truncated` is true whenever the cap was hit, and `embedded_database_count` gives the number of databases embedded anywhere in the workspace for comparison. Pass notebook_id to keep only databases embedded in that notebook; a database that is not embedded anywhere belongs to no notebook and is reported separately rather than dropped quietly.';
   readonly inputSchema: JSONSchema = {
     type: 'object',
     properties: {
-      keyword: { type: 'string', description: 'Search keyword, matched against database name' },
+      keyword: { type: 'string', description: 'Search keyword, matched against database name. Prefer a distinctive term — a broad one is what the 12-result cap silently truncates.' },
       excludes: { type: 'array', items: { type: 'string' }, description: 'Database IDs to exclude from results' },
       include_view_matches: { type: 'boolean', description: 'Also search view names; matching views are flagged matched: true' },
+      notebook_id: { type: 'string', description: 'Keep only databases embedded in this notebook. Filtering happens after the kernel search, so it narrows an already-capped result set rather than searching more widely.' },
     },
     required: ['keyword'],
   };
 
   async execute(args: any, context: ExecutionContext): Promise<any> {
-    return await context.siyuan.av.searchAttributeView(args.keyword, args.excludes ?? [], args.include_view_matches ?? false);
+    const r = await context.siyuan.av.searchAttributeView(
+      args.keyword,
+      args.excludes ?? [],
+      args.include_view_matches ?? false,
+      { notebookID: args.notebook_id }
+    );
+    return {
+      results: r.results,
+      returned: r.returned,
+      truncated: r.truncated,
+      embedded_database_count: r.embeddedDatabaseCount,
+      ...(r.excludedAsUnembedded !== undefined ? { excluded_by_notebook_filter: r.excludedAsUnembedded } : {}),
+      ...(r.note ? { note: r.note } : {}),
+    };
   }
 }
 
