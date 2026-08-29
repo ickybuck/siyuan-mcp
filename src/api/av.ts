@@ -1110,21 +1110,59 @@ export class SiyuanAvApi {
     avID: string,
     replacements: Record<string, string>,
     isDetached = false
-  ): Promise<{ replaced: number }> {
-    const oldNew = Object.entries(replacements).map(([oldID, newID]) => ({ [oldID]: newID }));
-    if (!oldNew.length) return { replaced: 0 };
+  ): Promise<{ replaced: number; requested: number; itemIDs: string[] }> {
+    const entries = Object.entries(replacements);
+    if (!entries.length) return { replaced: 0, requested: 0, itemIDs: [] };
+
+    // 键是行 ID（item ID），不是行当前绑定的块 ID——与旧描述里写的相反。内核对匹配
+    // 不上的键既不报错也不计数，而返回值以前只是回显提交条数，所以整批写错也会得到
+    // 一个自信的成功（PF-36）。先按当前行 ID 校验，写完再读回来数实际生效的条数。
+    const bindingsOf = async () => {
+      const av = await this.getAttributeView(avID);
+      const blockKV = (av.keyValues || []).find((kv: any) => kv?.key?.type === 'block');
+      const map = new Map<string, string>();
+      for (const value of blockKV?.values || []) {
+        if (value?.blockID) map.set(value.blockID, value?.block?.id ?? '');
+      }
+      return map;
+    };
+
+    const before = await bindingsOf();
+    const unknown = entries.map(([itemID]) => itemID).filter((itemID) => !before.has(itemID));
+    if (unknown.length) {
+      throw new Error(
+        `Not row ids of this database: ${unknown.map((id) => `"${id}"`).join(', ')}. ` +
+          `The keys of this map are ROW ids, not the block ids those rows are currently bound to. SiYuan ignores an unmatched key without any error, ` +
+          `so passing bound block ids returns a confident success and changes nothing. ` +
+          `Take row ids from render_database (rows[].id / cards[].id), or from get_database_primary_key_values — where the row id is the field named "blockID" and the bound block is nested under "block.id", a naming trap worth reading twice. Nothing was changed.`
+      );
+    }
 
     const response = await this.client.request('/api/av/batchReplaceAttributeViewBlocks', {
       avID,
       isDetached,
-      oldNew,
+      oldNew: entries.map(([oldID, newID]) => ({ [oldID]: newID })),
     });
 
     if (response.code !== 0) {
       throw new Error(`Failed to replace blocks: ${response.msg}`);
     }
 
-    return { replaced: oldNew.length };
+    const after = await bindingsOf();
+    const applied = entries.filter(([itemID, target]) => after.get(itemID) === target);
+
+    if (!applied.length) {
+      throw new Error(
+        `SiYuan accepted the request but not one row changed its binding, checked by reading the database back. ` +
+          `Verify the target block ids exist — retrying the same call unchanged will do the same nothing.`
+      );
+    }
+
+    return {
+      replaced: applied.length,
+      requested: entries.length,
+      itemIDs: applied.map(([itemID]) => itemID),
+    };
   }
 
   /**

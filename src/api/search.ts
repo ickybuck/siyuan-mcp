@@ -39,8 +39,27 @@ export class SiyuanSearchApi {
    */
   async searchByContent(content: string, options: SearchOptions = {}): Promise<SearchResultResponse[]> {
     const { limit = 10, notebook, types } = options;
+    const keepNested = (options as any).keepNestedHits === true;
+    const needle = this.escapeSql(content);
 
-    let stmt = `SELECT * FROM blocks WHERE content LIKE '%${this.escapeSql(content)}%'`;
+    // types:['d'] 配合内容搜索以前必然返回空：文档块的 content 只有标题，正文在子块上。
+    // 空数组读起来像"没有匹配"，而这恰恰是最不该误判的场合，所以改成按内容搜全部块，
+    // 再归并到各自所属的文档（PF-35）。
+    const documentsOnly = !!types && types.length === 1 && types[0] === 'd';
+    if (documentsOnly) {
+      const scope = notebook ? ` AND box='${this.escapeSql(notebook)}'` : '';
+      const hits = await this.client.request<Block[]>('/api/query/sql', {
+        stmt: `SELECT DISTINCT root_id FROM blocks WHERE content LIKE '%${needle}%'${scope} LIMIT ${Math.max(limit * 8, 64)}`,
+      });
+      const rootIDs = [...new Set((hits.data || []).map((b: any) => b.root_id).filter(Boolean))].slice(0, limit);
+      if (!rootIDs.length) return [];
+      const docs = await this.client.request<Block[]>('/api/query/sql', {
+        stmt: `SELECT * FROM blocks WHERE type='d' AND id IN (${rootIDs.map((id: string) => `'${this.escapeSql(id)}'`).join(',')}) LIMIT ${limit}`,
+      });
+      return this.toSearchResultResponse(docs.data || []);
+    }
+
+    let stmt = `SELECT * FROM blocks WHERE content LIKE '%${needle}%'`;
 
     if (notebook) {
       stmt += ` AND box='${this.escapeSql(notebook)}'`;
@@ -51,11 +70,37 @@ export class SiyuanSearchApi {
       stmt += ` AND type IN (${typeConditions})`;
     }
 
-    stmt += ` LIMIT ${limit}`;
+    // 折叠时多取一些，因为祖先块被丢掉后还要凑够 limit 条
+    stmt += ` LIMIT ${keepNested ? limit : Math.max(limit * 4, 32)}`;
 
     const response = await this.client.request<Block[]>('/api/query/sql', { stmt });
-    const blocks = response.data || [];
+    let blocks = response.data || [];
+    if (!keepNested) blocks = this.dropAncestorHits(blocks).slice(0, limit);
     return this.toSearchResultResponse(blocks);
+  }
+
+  /**
+   * 丢掉那些"只因为包含了后代文本才命中"的祖先块。
+   *
+   * 一处文本出现一次，列表块(l)、列表项(i) 和段落(p) 会各命中一次，因为祖先块的
+   * content 含有后代的文本。后果有两个：条数虚高约三倍，据此估算规模必然错；更糟的是
+   * 逐条改写命中项时，改 l 或 i 会连带重写它的全部子块，波及本来不该动的兄弟内容。
+   * 真正该编辑的是最内层那个块，而响应里没有任何标记指出是哪个（PF-35）。
+   */
+  private dropAncestorHits(blocks: Block[]): Block[] {
+    const byID = new Map((blocks as any[]).map((b) => [b.id, b]));
+    const ancestors = new Set<string>();
+
+    for (const block of blocks as any[]) {
+      let parentID = block.parent_id;
+      // 只沿着同样命中的祖先往上走：中间没命中的块不影响判断
+      while (parentID && byID.has(parentID)) {
+        ancestors.add(parentID);
+        parentID = byID.get(parentID).parent_id;
+      }
+    }
+
+    return (blocks as any[]).filter((b) => !ancestors.has(b.id));
   }
 
   /**
@@ -171,6 +216,7 @@ export class SiyuanSearchApi {
     limit?: number;
     notebook?: string;
     types?: string[];
+    keepNestedHits?: boolean;
   }): Promise<SearchResultResponse[]> {
     const { content, tag, filename, limit = 10, notebook, types } = options;
 
@@ -210,11 +256,32 @@ export class SiyuanSearchApi {
       return [];
     }
 
-    // 构建完整的SQL语句
-    const stmt = `SELECT * FROM blocks WHERE ${conditions.join(' AND ')} LIMIT ${limit}`;
+    const keepNested = (options as any).keepNestedHits === true;
+
+    // 按内容搜且只要文档时，直接过滤 type='d' 必然落空：文档块的 content 只有标题，
+    // 正文在子块上。空数组读起来像"没有匹配"，恰恰是最不该误判的场合。改成搜全部块
+    // 再归并到所属文档（PF-35）。filename 走的是标题匹配，不受影响。
+    const documentsOnly = !filename && !!content && !!types && types.length === 1 && types[0] === 'd';
+    if (documentsOnly) {
+      const scoped = conditions.filter((c) => !c.startsWith('type IN ('));
+      const hits = await this.client.request<Block[]>('/api/query/sql', {
+        stmt: `SELECT DISTINCT root_id FROM blocks WHERE ${scoped.join(' AND ')} LIMIT ${Math.max(limit * 8, 64)}`,
+      });
+      const rootIDs = [...new Set((hits.data || []).map((b: any) => b.root_id).filter(Boolean))].slice(0, limit);
+      if (!rootIDs.length) return [];
+      const docs = await this.client.request<Block[]>('/api/query/sql', {
+        stmt: `SELECT * FROM blocks WHERE type='d' AND id IN (${rootIDs.map((id: string) => `'${this.escapeSql(id)}'`).join(',')}) LIMIT ${limit}`,
+      });
+      return this.toSearchResultResponse(docs.data || []);
+    }
+
+    // 折叠祖先命中时多取一些，丢掉之后还要凑够 limit 条
+    const fetchLimit = keepNested || !content ? limit : Math.max(limit * 4, 32);
+    const stmt = `SELECT * FROM blocks WHERE ${conditions.join(' AND ')} LIMIT ${fetchLimit}`;
 
     const response = await this.client.request<Block[]>('/api/query/sql', { stmt });
-    const blocks = response.data || [];
+    let blocks = response.data || [];
+    if (content && !keepNested) blocks = this.dropAncestorHits(blocks).slice(0, limit);
     return this.toSearchResultResponse(blocks);
   }
 

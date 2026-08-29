@@ -23,7 +23,7 @@ export class UnifiedSearchHandler extends BaseToolHandler<
   readonly name = 'unified_search';
   readonly annotations = { readOnlyHint: true } as const;
   readonly description =
-    'Search notes in SiYuan by content keywords, tags, note titles, or combined filters. Returns matching notes and blocks from your knowledge base';
+    'Search notes in SiYuan by content keywords, tags, note titles, or combined filters. Two behaviours worth knowing, both handled here rather than left to trip you up. A single occurrence of a phrase matches its paragraph AND every ancestor block containing it — list item, list, and so on — because an ancestor carries its descendants text; those ancestors are dropped so counts are not inflated roughly threefold and so editing each hit cannot rewrite the same content twice. Pass keep_nested_hits to see the raw ancestor blocks. And a content search restricted to types:["d"] used to return nothing at all, since a document block content is only its title: it now searches every block and returns the documents those hits belong to, which is what asking for documents means.';
   readonly inputSchema: JSONSchema = {
     type: 'object',
     properties: {
@@ -48,6 +48,10 @@ export class UnifiedSearchHandler extends BaseToolHandler<
         type: 'string',
         description: 'Optional: Limit to specific notebook ID',
       },
+      keep_nested_hits: {
+        type: 'boolean',
+        description: 'Return ancestor blocks that matched only because they contain a descendant match. Off by default; on, result counts overstate real occurrences and editing every hit can rewrite the same text more than once.',
+      },
       types: {
         type: 'array',
         items: { type: 'string' },
@@ -64,6 +68,7 @@ export class UnifiedSearchHandler extends BaseToolHandler<
       limit: args.limit || 10,
       notebook: args.notebook_id,
       types: args.types,
+      keepNestedHits: args.keep_nested_hits,
     });
   }
 }
