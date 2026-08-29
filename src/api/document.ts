@@ -262,9 +262,32 @@ export class SiyuanDocumentApi {
     const anchorPath: string = selfRow ? String(selfRow.path).replace(/\.sy$/, '') : '';
     const prefix = `${anchorPath}/`;
 
-    const allResponse = await this.client.request<any[]>('/api/query/sql', {
-      stmt: `SELECT id, path, hpath, content FROM blocks WHERE type = 'd' AND box = '${box}'`,
-    });
+    // 两处都要紧，缺一个就会静默少报（PF-33）：
+    // 1. 前缀过滤放进 SQL。原先是把整个笔记本的文档都取回来再在内存里筛，
+    //    结果内核的行数上限先砍在"整个笔记本"那一层，跟这次要找的子树无关。
+    // 2. 显式分页。/api/query/sql 对没有 LIMIT 的语句套用 Conf.Search.Limit
+    //    （默认 64）且不作任何提示，所以"没写 LIMIT"不等于"不限行数"，而是
+    //    "限 64 行且不告诉你"。实测：某笔记本 181 篇文档，无 LIMIT 返回 64。
+    const escapedPrefix = prefix.replace(/'/g, "''");
+    const pageSize = 512;
+    const rows: any[] = [];
+    for (let offset = 0; ; offset += pageSize) {
+      const pageResponse = await this.client.request<any[]>('/api/query/sql', {
+        stmt:
+          `SELECT id, path, hpath, content FROM blocks WHERE type = 'd' AND box = '${box}' ` +
+          `AND path LIKE '${escapedPrefix}%' ORDER BY path LIMIT ${pageSize} OFFSET ${offset}`,
+      });
+
+      if (pageResponse.code !== 0) {
+        throw new Error(`Failed to get document tree: ${pageResponse.msg}`);
+      }
+
+      const page = pageResponse.data || [];
+      rows.push(...page);
+      if (page.length < pageSize) break;
+    }
+
+    const allResponse = { code: 0, msg: '', data: rows };
 
     if (allResponse.code !== 0) {
       throw new Error(`Failed to get document tree: ${allResponse.msg}`);
