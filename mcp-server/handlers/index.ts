@@ -25,6 +25,9 @@ export * from './snapshot.js';
 // 使用指南
 export * from './guide.js';
 
+// 视图与图标
+export * from './view.js';
+
 // 标签相关
 export * from './tag.js';
 
@@ -107,6 +110,7 @@ import {
   RollbackSnapshotHandler,
 } from './snapshot.js';
 import { GetUsageGuideHandler } from './guide.js';
+import { CreateDatabaseViewHandler, SetDatabaseFieldVisibilityHandler, SetDatabaseBlockViewHandler, SetIconHandler } from './view.js';
 import {
   ListAllTagsHandler,
   ReplaceTagHandler,
@@ -191,6 +195,10 @@ export function createAllHandlers() {
     // 快照
     new CreateSnapshotHandler(),
     new GetUsageGuideHandler(),
+    new CreateDatabaseViewHandler(),
+    new SetDatabaseFieldVisibilityHandler(),
+    new SetDatabaseBlockViewHandler(),
+    new SetIconHandler(),
     new ListSnapshotsHandler(),
     new RollbackSnapshotHandler(),
 

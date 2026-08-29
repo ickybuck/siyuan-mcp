@@ -2118,6 +2118,133 @@ export class SiyuanAvApi {
   }
 
   /**
+   * 新建一个视图。
+   *
+   * 事务动作 addAttrViewView：avID + id（新视图 ID）+ blockID + layout。内核要求数据库
+   * 至少已有一个视图，否则只记日志就返回——在排队执行的事务路径上就是一次静默空操作，
+   * 所以照例读回确认（PF-29）。
+   */
+  async addAttributeViewView(
+    avID: string,
+    blockID: string,
+    options: { name?: string; layout?: AvLayoutType } = {}
+  ): Promise<{ viewID: string }> {
+    if (!blockID) {
+      throw new Error('blockID is required: SiYuan resolves the database block when creating a view, so this does not work on a detached database.');
+    }
+
+    const viewID = newNodeId();
+    await this.performOperation({
+      action: 'addAttrViewView',
+      avID,
+      id: viewID,
+      blockID,
+      layout: options.layout ?? 'table',
+    });
+
+    await this.confirmApplied(
+      `create a view on database ${avID}`,
+      async () => {
+        const av = await this.getAttributeView(avID);
+        return (av.views || []).some((v: any) => v?.id === viewID);
+      },
+      'A database must already have at least one view before another can be added.'
+    );
+
+    if (options.name) {
+      await this.performOperation({ action: 'setAttrViewViewName', avID, id: viewID, data: options.name });
+      await this.confirmApplied(
+        `name the new view "${options.name}"`,
+        async () => {
+          const av = await this.getAttributeView(avID);
+          return (av.views || []).some((v: any) => v?.id === viewID && v?.name === options.name);
+        }
+      );
+    }
+
+    return { viewID };
+  }
+
+  /**
+   * 在某个视图里隐藏/显示一列。
+   *
+   * 注意这只影响界面显示：隐藏列不会减少 render_database 返回的数据，单元格值来自数据
+   * 层，hidden 只是展示标记（PF-26 已实测确认）。要少读几列请用 render_database 的
+   * fields 参数。
+   */
+  async setAttributeViewColumnHidden(
+    avID: string,
+    keyID: string,
+    hidden: boolean,
+    options: { viewID?: string; blockID?: string } = {}
+  ): Promise<void> {
+    if (!options.viewID && !options.blockID) {
+      throw new Error('Provide view_id, or block_id so the view can be resolved from the block.');
+    }
+
+    await this.performOperation({
+      action: 'setAttrViewColHidden',
+      avID,
+      id: keyID,
+      blockID: options.blockID ?? '',
+      ...(options.viewID ? { viewID: options.viewID } : {}),
+      data: hidden,
+    });
+
+    await this.confirmApplied(
+      `${hidden ? 'hide' : 'show'} field "${keyID}"`,
+      async () => {
+        const av = await this.getAttributeView(avID);
+        const views = options.viewID
+          ? (av.views || []).filter((v: any) => v?.id === options.viewID)
+          : av.views || [];
+        return views.some((v: any) =>
+          (v?.table?.columns || v?.gallery?.cardFields || v?.kanban?.fields || []).some(
+            (f: any) => f?.id === keyID && !!f?.hidden === hidden
+          )
+        );
+      },
+      'Check that the field id belongs to this database and the view id to one of its views.'
+    );
+  }
+
+  /**
+   * 设置某个数据库块当前显示哪个视图。
+   *
+   * 这不只是外观：过滤、排序、分组、布局这些操作在内核里一律从 blockID 解析视图，
+   * 没有任何 viewID 参数（SetAttrViewFilters(avID, blockID, data) 就是如此）。所以要
+   * 配置非当前视图，唯一的办法是先把块切到那个视图，配置完再切回来。
+   */
+  async setDatabaseBlockView(blockID: string, avID: string, viewID: string): Promise<void> {
+    const response = await this.client.request('/api/av/setDatabaseBlockView', {
+      id: blockID,
+      avID,
+      viewID,
+    });
+
+    if (response.code !== 0) {
+      throw new Error(`Failed to switch the database block to that view: ${response.msg}`);
+    }
+  }
+
+  /**
+   * 设置某个视图的图标。数据库本身没有图标字段，AttributeView 结构里根本没有这一项，
+   * 图标属于 View，所以"数据库的图标"实际上是当前视图的图标（PF-42）。
+   */
+  async setAttributeViewViewIcon(avID: string, viewID: string, icon: string): Promise<void> {
+    await this.performOperation({ action: 'setAttrViewViewIcon', avID, id: viewID, data: icon });
+
+    await this.confirmApplied(
+      `set the icon on view ${viewID}`,
+      async () => {
+        const av = await this.getAttributeView(avID);
+        return (av.views || []).some((v: any) => v?.id === viewID && (v?.icon ?? '') === icon);
+      },
+      'SiYuan silently blanks an icon value it considers invalid — it wants hex codepoints, a filename, or an icon URL, never a bare emoji character.'
+    );
+  }
+
+  /**
    * 逐值对照字段已有的选项集检查 select/mSelect 值，把"静默新建一个几乎一样的选项"
    * 变成一个明确的错误。与 appendDetachedRowsWithValues 里的 validateOptions 同义。
    */
