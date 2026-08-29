@@ -412,14 +412,14 @@ export class ReplaceDatabaseBlocksHandler extends BaseToolHandler<
 > {
   readonly name = 'replace_database_blocks';
   readonly annotations = { readOnlyHint: false, destructiveHint: true } as const;
-  readonly description = 'Re-point database rows from one set of bound blocks to another, given a map of old block ID to new block ID. Use this when the documents a database refers to have been recreated — a re-import, for instance — and the rows would otherwise still point at the old, now-deleted blocks. This changes which block each row is bound to; it does not alter cell values.';
+  readonly description = 'Re-point database rows at different blocks. The map is keyed on ROW id, not on the block a row is currently bound to — that distinction is the whole trap: SiYuan ignores an unmatched key without erroring, so a map keyed on bound block ids used to return a confident success having changed nothing. Row ids come from render_database (rows[].id / cards[].id), or from get_database_primary_key_values, where the row id is the field literally named blockID while the bound block sits under block.id. Keys are validated against the current rows and the whole call is refused if any is not one; the returned replaced count is what actually changed, read back afterwards, against requested for what was asked. Use it when the documents a database refers to have been recreated. Cell values are untouched.';
   readonly inputSchema: JSONSchema = {
     type: 'object',
     properties: {
       av_id: { type: 'string', description: 'Database ID' },
       replacements: {
         type: 'object',
-        description: 'Map of old block ID to new block ID, e.g. {"20260101120000-aaaaaaa":"20260202120000-bbbbbbb"}',
+        description: 'Map of ROW id to the block id that row should point at from now on. Keys are row ids from render_database (rows[].id), NOT the block ids the rows are currently bound to — an unmatched key changes nothing and used to report success anyway.',
       },
       is_detached: {
         type: 'boolean',
@@ -429,8 +429,9 @@ export class ReplaceDatabaseBlocksHandler extends BaseToolHandler<
     required: ['av_id', 'replacements'],
   };
 
-  async execute(args: any, context: ExecutionContext): Promise<{ replaced: number }> {
-    return await context.siyuan.av.batchReplaceBlocks(args.av_id, args.replacements, args.is_detached ?? false);
+  async execute(args: any, context: ExecutionContext): Promise<{ replaced: number; requested: number; item_ids: string[] }> {
+    const r = await context.siyuan.av.batchReplaceBlocks(args.av_id, args.replacements, args.is_detached ?? false);
+    return { replaced: r.replaced, requested: r.requested, item_ids: r.itemIDs };
   }
 }
 
