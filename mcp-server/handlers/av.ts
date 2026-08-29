@@ -1064,7 +1064,7 @@ export class AddDatabaseFieldHandler extends BaseToolHandler<
 > {
   readonly name = 'add_database_field';
   readonly annotations = { readOnlyHint: false, destructiveHint: false } as const;
-  readonly description = `Add a new field (column) to a SiYuan database, appended to every view. The block/primary-key type cannot be added this way — it's built in. Valid key_type values: ${KEY_TYPES.join(', ')}.`;
+  readonly description = `Add a new field (column) to a SiYuan database, appended to every view and registered in the database's global field order. Both of those need doing explicitly: SiYuan prepends a new table column to the left of the primary key when no position is given, and never adds the field to keyIDs at all, so a consumer iterating keyIDs would not see it. Adding a second field with the same name AND type is refused, since two fields sharing a name make later writes addressed by name ambiguous and render_database's name filter would show only one of them — pass allow_duplicate_name if two are genuinely wanted. The block/primary-key type cannot be added this way — it's built in. Valid key_type values: ${KEY_TYPES.join(', ')}.`;
   readonly inputSchema: JSONSchema = {
     type: 'object',
     properties: {
@@ -1072,7 +1072,8 @@ export class AddDatabaseFieldHandler extends BaseToolHandler<
       key_name: { type: 'string', description: 'Field display name' },
       key_type: { type: 'string', description: 'Field type', enum: KEY_TYPES },
       key_icon: { type: 'string', description: 'Optional field icon (emoji or empty string)' },
-      previous_key_id: { type: 'string', description: 'Insert the new column after this field ID. Omit to use the layout default.' },
+      previous_key_id: { type: 'string', description: 'Insert the new column after this field ID. Omit to append after the last existing field.' },
+      allow_duplicate_name: { type: 'boolean', description: 'Permit a second field with the same name and type as an existing one. Off by default; two identically named fields make name-addressed writes ambiguous.' },
     },
     required: ['av_id', 'key_name', 'key_type'],
   };
@@ -1081,6 +1082,7 @@ export class AddDatabaseFieldHandler extends BaseToolHandler<
     const keyId = await context.siyuan.av.addAttributeViewKey(args.av_id, args.key_name, args.key_type, {
       keyIcon: args.key_icon,
       previousKeyID: args.previous_key_id,
+      allowDuplicateName: args.allow_duplicate_name,
     });
     return { key_id: keyId };
   }
