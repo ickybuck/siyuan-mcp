@@ -256,6 +256,21 @@ export class SiyuanDocumentApi {
     });
     const selfRow = (selfResponse.data || [])[0];
 
+    // id 不是文档时，这里原本直接把它当笔记本 ID 用；传错 ID（例如把数据库的
+    // av_id 当成文档 ID）就会查到一个不存在的 box，返回空数组，看起来像"这个文档
+    // 没有子文档"。空结果和"ID 不对"必须分得开，否则又是一次静默误报。
+    if (!selfRow) {
+      const notebooks = await this.client.request<{ notebooks?: Array<{ id: string }> }>(
+        '/api/notebook/lsNotebooks'
+      );
+      const isNotebook = (notebooks.data?.notebooks || []).some((n) => n.id === id);
+      if (!isNotebook) {
+        throw new Error(
+          `"${id}" is neither a document nor a notebook, so it has no document tree. An empty result would be indistinguishable from a document with no children, so this fails instead. Note that a database's av_id is not a document ID — use the ID of the document the database is embedded in.`
+        );
+      }
+    }
+
     // id 是文档：box 取该文档所在笔记本，锚点路径为该文档自身（去掉 .sy 后缀）
     // id 是笔记本：box 就是 id 本身，锚点路径为空（笔记本根目录）
     const box = selfRow ? selfRow.box : id;
