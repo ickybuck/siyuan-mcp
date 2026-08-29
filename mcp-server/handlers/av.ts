@@ -1401,7 +1401,7 @@ export class AddBoundDatabaseRowsWithValuesHandler extends BaseToolHandler<
   readonly annotations = { readOnlyHint: false, destructiveHint: false } as const;
   readonly description = `Bind existing documents (or blocks) into a database as rows AND set all their cell values, in one call — the bound-row counterpart of add_database_rows_with_values, which can only create detached rows. Use this when the documents already exist. When they do not, it is cheaper to bulk-create detached rows with add_database_rows_with_values and then convert the whole batch with convert_database_rows_to_documents, which creates a document per row.
 A bound row takes its name from the document it binds, so the primary-key field is rejected here: writing it succeeds but only overrides the row's display text, leaving it disagreeing with the document's own title. Rename the document instead.
-Row IDs are resolved from SiYuan's own block-to-row mapping rather than assumed from ordering, and are returned as item_ids keyed by block ID. ${CELL_VALUE_DESCRIPTION}`;
+Row IDs are resolved from SiYuan's own block-to-row mapping rather than assumed from ordering, and are returned as item_ids keyed by block ID. A bound row's ID cannot be pinned — there is no item_id here, and passing one is rejected rather than ignored. It is not needed: re-binding a block that is already a row updates that row in place instead of adding a second, so the block ID is the identity key and re-sending after an uncertain failure is safe. ${CELL_VALUE_DESCRIPTION}`;
   readonly inputSchema: JSONSchema = {
     type: 'object',
     properties: {
@@ -1430,6 +1430,22 @@ Row IDs are resolved from SiYuan's own block-to-row mapping rather than assumed 
   };
 
   async execute(args: any, context: ExecutionContext): Promise<{ row_count: number; chunks: number; updated: number; item_ids: Record<string, string> }> {
+    // 未知键以前被静默忽略：调用方按兄弟工具的习惯传了 item_id，调用报成功，那个 id
+    // 被丢掉，行 ID 由内核另行生成——"这次导入是幂等的"这个前提于是悄悄不成立
+    // （PF-30）。照本项目对未知字段 ID 的既有做法，在写之前拒绝。
+    const allowedRowKeys = new Set(['block_id', 'values']);
+    for (let i = 0; i < args.rows.length; i++) {
+      const unknown = Object.keys(args.rows[i] ?? {}).filter((k) => !allowedRowKeys.has(k));
+      if (!unknown.length) continue;
+      throw new Error(
+        `Row ${i + 1} has unrecognised key${unknown.length > 1 ? 's' : ''} ${unknown.map((k) => `"${k}"`).join(', ')}. Each row takes block_id and values only. ` +
+          (unknown.includes('item_id')
+            ? `A bound row's ID cannot be pinned — SiYuan assigns it when the block is bound, so item_id would be discarded here, and an import trusting it would not be idempotent the way that same key makes add_database_rows_with_values idempotent. ` +
+              `It is also unnecessary: re-binding a block_id that is already a row in this database updates that row in place instead of creating a second one, verified against the kernel, so the block ID is the identity key here and re-sending is already safe.`
+            : `Unknown keys are rejected rather than ignored, because a key that was silently dropped looks exactly like one that was honoured.`)
+      );
+    }
+
     const rows = args.rows.map((r: any) => ({ blockID: r.block_id, values: r.values }));
     const result = await context.siyuan.av.addBoundRowsWithValues(args.av_id, rows, {
       blockID: args.block_id,
