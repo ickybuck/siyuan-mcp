@@ -37,7 +37,7 @@ export class UpdateBlockHandler extends BaseToolHandler<
 > {
   readonly name = 'update_block';
   readonly annotations = { readOnlyHint: false, destructiveHint: true } as const;
-  readonly description = 'Replace the content of a single block in SiYuan with new markdown content, in place. Unlike update_document, this edits only the target block and leaves the rest of the note untouched — use it for single-paragraph edits in large notes.';
+  readonly description = 'Replace the content of a single block in SiYuan with new markdown content, in place. Unlike update_document, this edits only the target block and leaves the rest of the note untouched — use it for single-paragraph edits in large notes. Exactly one block: markdown that parses as several blocks is rejected up front, because SiYuan stores the first and discards the rest while still reporting success. Use update_document for a whole note, append_block for children, or insert_block_after once per sibling.';
   readonly inputSchema: JSONSchema = {
     type: 'object',
     properties: {
@@ -98,7 +98,7 @@ export class InsertBlockBeforeHandler extends BaseToolHandler<
 > {
   readonly name = 'insert_block_before';
   readonly annotations = { readOnlyHint: false, destructiveHint: false } as const;
-  readonly description = 'Insert a new block with markdown content immediately before a reference block in SiYuan. Returns the new block ID.';
+  readonly description = 'Insert a new block with markdown content immediately before a reference block in SiYuan, as a sibling. Returns the new block ID. Multi-block markdown is written whole, unlike update_block.';
   readonly inputSchema: JSONSchema = {
     type: 'object',
     properties: {
@@ -128,7 +128,7 @@ export class InsertBlockAfterHandler extends BaseToolHandler<
 > {
   readonly name = 'insert_block_after';
   readonly annotations = { readOnlyHint: false, destructiveHint: false } as const;
-  readonly description = 'Insert a new block with markdown content immediately after a reference block in SiYuan. Returns the new block ID.';
+  readonly description = 'Insert a new block with markdown content immediately after a reference block in SiYuan, as a sibling. Returns the new block ID. Multi-block markdown is written whole, unlike update_block.';
   readonly inputSchema: JSONSchema = {
     type: 'object',
     properties: {
