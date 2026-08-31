@@ -1,4 +1,34 @@
-# NOTES.md — handoff log
+# NO
+## 2026-08-31 — PF-46 through PF-56: the silent-success family, closed out
+
+**Who:** Eric (Claude Code — "Code" thread)
+**Branch / PR:** `fix/pf-46-56`, merged as PR #13; deployed as `sha-c7d1d73d952e52d706e83f0d4d6bd6684ba9f00c`
+
+**Changed**
+- `add_database_rows_with_values` rejects an `item_id` that already exists and takes `on_existing: "skip"` (PF-46).
+- `create_document` refuses a non-existent parent path and HTML entities in a path, takes `create_parents`, and returns the read-back location instead of a bare ID (PF-48).
+- `rename_document` verifies through block attributes rather than the SQL index (PF-49).
+- `embed_database` with `parent_id` anchors to the current last child and verifies the position (PF-56).
+- Search results de-duplicated by block ID (PF-47, backstop only — see below).
+- `batch_replace_tag` returns `{ count, updatedIds, remaining }`, fails when the tag matches nothing, and `new_tag` is now optional.
+- Rebuilt the Milestone Tracker's row-creation template in the live workspace (PF-53). No code change.
+
+**Learned**
+- **`item_id` does not update. It de-duplicates.** SiYuan recognises an existing `item_id`, declines the second row, then discards the submitted values while counting the row as written. The usage guide claimed the opposite for weeks; the cost was about thirty cell updates across eleven rows, all reported as written and never stored. If you need to change existing rows, `set_database_cells` is the only path that writes.
+- **`insertBlock` treats `parentID` as "first child", not "append".** The embed succeeded, returned a block ID, and put correct data at the top of the document. Nothing in the response distinguishes that from the intended placement — position has to be read back.
+- **A bare ID is not a receipt.** `create_document` returned one, and it cannot tell you whether you landed in the tree you meant or in a shadow tree the kernel invented. Returning the read-back `hpath` costs one extra call and removes the entire class.
+- **`new_tag` had to stop being required.** The PF-50/52 validation rejects an empty required argument, and tag *removal* is exactly the empty case. Worth checking any other tool where the empty string is a meaningful value.
+
+**Did not work / not reproducible**
+- **PF-47's doubled search result.** The index holds one row for the document in question, with the current title. The ID de-duplication shipped anyway, but nothing was reproduced. If it recurs, capture both IDs first: identical means the backstop failed, different means it is two real documents and a different finding.
+- **PF-48's ampersand escaping.** A raw `&` passes cleanly through both the library and the MCP tool. Nothing here escapes it, so the `&amp;` almost certainly arrived that way from the client. The entity guard shipped because an entity in a path is an escaping accident either way, and it was what triggered the phantom-parent creation.
+- Editing `mcp-server/core/usage-guide.ts` with `node -e` string replacement failed silently twice — the file is one big template literal, so every backtick in inserted prose needs escaping, and the shell mangles the escapes on the way in. Use the editor against exact read-back text.
+
+**Left unfinished**
+- The integration suite needs a live `SIYUAN_TOKEN` and was not run; it type-checks, and `create_document`'s assertions were updated for the new return shape. Someone with a token should run it once.
+- PF-29 and PF-42 are still `Needs verification` from earlier batches, owned by Chat.
+- PF-55 is deliberately unused: Chat takes odd numbers, Code takes even.
+TES.md — handoff log
 
 Newest entry first. Two developers work on this repo from separate Claude Code accounts and never
 at the same time, so neither can see the other's session history. **Anything learned or decided
