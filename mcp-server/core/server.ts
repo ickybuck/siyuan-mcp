@@ -139,8 +139,11 @@ export class SiyuanMCPServer {
           throw new Error(`Unknown tool: ${name}`);
         }
 
-        // 执行工具
-        const result = await handler.execute(args || {}, this.context);
+        // 走 safeExecute，不要直接 execute：参数校验在 validate() 里，而 execute()
+        // 不会调用它。以前这里绕过了校验，于是每个 handler 自己写的 validate（包括
+        // 基类的必填检查）从来没有生效过——参数名写错就带着 undefined 一路跑下去
+        // （PF-50、PF-52）。
+        const result = await handler.safeExecute(args || {}, this.context);
 
         // 格式化返回结果（符合 MCP 协议）
         // 处理 void 返回值（undefined）

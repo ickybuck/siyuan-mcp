@@ -127,7 +127,72 @@ export class SiyuanTools {
    * @param content Markdown 内容
    */
   async overwriteFile(blockId: string, content: string): Promise<void> {
-    return this.block.updateBlock(blockId, content);
+    await this.replaceDocumentContent(blockId, content);
+  }
+
+  /**
+   * 用新内容整体替换一个文档的正文。
+   *
+   * 以前这里就是 block.updateBlock(docID, content) 一行——update_document 从来没有
+   * 自己的实现。而 updateBlock 只写一个块：多块 Markdown 会被内核只留第一块、其余丢弃，
+   * 还报成功。也就是说这个工具一直在悄悄截断整篇文档，直到 PF-31 给 updateBlock 加上
+   * 拦截，才以"被拒绝"的形式暴露出来（PF-51）。拦截本身是对的，错的是它落在了这里。
+   *
+   * 顺序是先写后删，不是先删后写：写失败时原文还在，最坏是文档里多出一份新内容，看得见
+   * 也好收拾；反过来删完再写失败，原文就没了。每一步都读回确认。
+   */
+  async replaceDocumentContent(
+    documentID: string,
+    content: string
+  ): Promise<{ blocksWritten: number; blocksRemoved: number }> {
+    if (!content.trim()) {
+      throw new Error(
+        'Refusing to replace a document with empty content — that is a deletion, not an update. Use remove_document if that is what you mean.'
+      );
+    }
+
+    const before = await this.block.getChildBlocks(documentID);
+    if (!Array.isArray(before)) {
+      throw new Error(
+        `Could not read the current blocks of ${documentID}, so its content was left alone. Check that this is a document ID.`
+      );
+    }
+    const oldIDs = before.map((b: any) => b.id);
+
+    await this.block.appendBlock(documentID, content);
+
+    const afterAppend = await this.block.getChildBlocks(documentID);
+    const newIDs = (afterAppend || [])
+      .map((b: any) => b.id)
+      .filter((id: string) => !oldIDs.includes(id));
+    if (!newIDs.length) {
+      throw new Error(
+        `Nothing was written to ${documentID} and the original content is untouched. The append reported success but no new block appeared.`
+      );
+    }
+
+    let blocksRemoved = 0;
+    for (const id of oldIDs) {
+      await this.block.deleteBlock(id);
+      blocksRemoved++;
+    }
+
+    // 删除同样是排队执行的，紧接着读回可能还看得见旧块。轮询几次再下结论，否则会把
+    // "还没落盘"误报成"删不掉"，而这条错误信息是要求人去手动清理的，误报代价不小。
+    let leftovers: string[] = [];
+    for (let attempt = 0; attempt < 6; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, attempt === 0 ? 300 : 500));
+      const final = await this.block.getChildBlocks(documentID);
+      leftovers = (final || []).map((b: any) => b.id).filter((id: string) => oldIDs.includes(id));
+      if (!leftovers.length) break;
+    }
+    if (leftovers.length) {
+      throw new Error(
+        `The new content was written to ${documentID} but ${leftovers.length} of the original block(s) could not be removed, so the document now holds both. Remove them with delete_block: ${leftovers.join(', ')}.`
+      );
+    }
+
+    return { blocksWritten: newIDs.length, blocksRemoved };
   }
 
   /**

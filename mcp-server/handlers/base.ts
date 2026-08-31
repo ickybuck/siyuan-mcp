@@ -16,16 +16,40 @@ export abstract class BaseToolHandler<TArgs = any, TResult = any>
 
   /**
    * 默认的参数验证（子类可覆盖）
+   *
+   * 这里管的是"参数名写错了会怎样"。以前少传或写错一个必填参数不会被拦下，工具带着
+   * undefined 继续跑，内核返回 null，调用方拿到的是一句 Cannot read properties of null
+   * 或者一个光秃秃的 null——读起来像"这个文档是空的"，而不是"你把参数名写错了"。有人
+   * 据此认定整片文档区是空壳，差点用重写覆盖掉真实文档（PF-50、PF-52）。
+   *
+   * 所以：必填项缺失或为空要报错，未声明的顶层参数也要报错并列出可用参数名。空值判断
+   * 只认 undefined/null/空串——false 和 0 是合法取值，不能当成缺失。
    */
   validate(args: any): args is TArgs {
-    // 基础验证：检查必填字段
-    if (this.inputSchema.required) {
-      for (const field of this.inputSchema.required) {
-        if (!(field in args)) {
-          throw new Error(`Missing required field: ${field}`);
-        }
+    const properties = this.inputSchema.properties ?? {};
+    const known = Object.keys(properties);
+
+    if (args && typeof args === 'object' && known.length) {
+      const unknown = Object.keys(args).filter((key) => !known.includes(key));
+      if (unknown.length) {
+        throw new Error(
+          `${this.name}: unknown argument${unknown.length > 1 ? 's' : ''} ${unknown.map((k) => `"${k}"`).join(', ')}. ` +
+            `Accepted: ${known.join(', ')}. Rejected rather than ignored, because a dropped argument looks exactly like one that was honoured — ` +
+            `a misnamed id makes a read tool answer about nothing at all.`
+        );
       }
     }
+
+    for (const field of this.inputSchema.required ?? []) {
+      const value = args?.[field];
+      if (value === undefined || value === null || value === '') {
+        throw new Error(
+          `${this.name}: required argument "${field}" is ${args && field in args ? 'empty' : 'missing'}. ` +
+            `Accepted arguments: ${known.join(', ')}.`
+        );
+      }
+    }
+
     return true;
   }
 
