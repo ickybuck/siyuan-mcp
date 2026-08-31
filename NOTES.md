@@ -1,10 +1,3 @@
-- **Docker on the NAS was available the whole time; I concluded otherwise from a bad test.**
-  `truenas_admin` has NOPASSWD sudo scoped to `/usr/bin/docker` (and one `ez-workout` deploy
-  script) — `sudo -n -l` says so plainly. I probed with `sudo -n true`, which is *not* in that
-  list, got "a password is required", and generalised it to "Docker is gated". Consequence: the
-  container inspection and the image prune were handed to Eric to run by hand for no reason.
-  NOPASSWD is scoped per command — test the command you actually intend to run, or read
-  `sudo -n -l`.
 # NOTES.md — handoff log
 
 Newest entry first. Two developers work on this repo from separate Claude Code accounts and never
@@ -82,6 +75,13 @@ Worth recording, in rough order of value to the next person:
   confirmed no duplicates and no gaps.
 
 **Did not work**
+- **Docker on the NAS was available the whole time; I concluded otherwise from a bad test.**
+  `truenas_admin` has NOPASSWD sudo scoped to `/usr/bin/docker` (and one `ez-workout` deploy
+  script) — `sudo -n -l` says so plainly. I probed with `sudo -n true`, which is *not* in that
+  list, got "a password is required", and generalised it to "Docker is gated". Consequence: the
+  container inspection and the image prune were handed to Eric to run by hand for no reason.
+  NOPASSWD is scoped per command — test the command you actually intend to run, or read
+  `sudo -n -l`.
 - Probing the deployed MCP server over HTTP from the NAS host was a dead end and briefly
   misleading. Port 3000 on the host is **Docmost**, not this connector, and it answered a POST to
   `/mcp` with `401 Unauthorized` — which looked like evidence that the connector requires an auth
