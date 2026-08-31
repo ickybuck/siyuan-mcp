@@ -1,3 +1,10 @@
+- **Docker on the NAS was available the whole time; I concluded otherwise from a bad test.**
+  `truenas_admin` has NOPASSWD sudo scoped to `/usr/bin/docker` (and one `ez-workout` deploy
+  script) — `sudo -n -l` says so plainly. I probed with `sudo -n true`, which is *not* in that
+  list, got "a password is required", and generalised it to "Docker is gated". Consequence: the
+  container inspection and the image prune were handed to Eric to run by hand for no reason.
+  NOPASSWD is scoped per command — test the command you actually intend to run, or read
+  `sudo -n -l`.
 # NOTES.md — handoff log
 
 Newest entry first. Two developers work on this repo from separate Claude Code accounts and never
@@ -83,13 +90,6 @@ Worth recording, in rough order of value to the next person:
   actually listening before drawing conclusions from its responses.
 
 **Left unfinished**
-- **Docker access on the NAS is not granted, deliberately.** `truenas_admin` is in
-  `builtin_administrators` but not the `docker` group, and sudo needs a password. Adding the
-  group would work — the socket is `root:docker`, mode 660 — but docker socket access is
-  root-equivalent (`docker run -v /:/host`), so it is a privilege decision rather than a
-  convenience one and was left to a deliberate choice. Note also that TrueNAS mounts its root
-  filesystem read-only and regenerates users and sudoers from its config database, so any such
-  change must be made through the UI; `usermod` or a `sudoers.d` edit would not survive.
 - **Whether to take SiYuan v3.8.2.** Not urgent, and not casual: this connector is developed
   against live kernel behaviour and much of this database catalogues kernel quirks, so a bump can
   invalidate findings quietly. If taken: snapshot first, pin the new tag explicitly rather than
