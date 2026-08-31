@@ -35,6 +35,58 @@ Worth recording, in rough order of value to the next person:
 
 ---
 
+## 2026-08-31 — PF ID collision fixed; Hermes skill for this connector
+
+**Who:** Eric (second developer, Claude Code — MCP session)
+**Branch / PR:** `docs/notes-2026-08-31`
+
+**Changed**
+- Project Findings: the duplicated `PF-46` was renumbered to **PF-49**. The row that moved is
+  `20260829010918-tob8aec` ("A renamed document keeps its old title in blocks.content"), created
+  07:09; the earlier `20260829000000-pf00046` (04:43) keeps 46. Snapshot taken first, and the
+  result verified by re-reading: 49 rows, max 49, no duplicates, no gaps in 1–49.
+- No code changes in this repo.
+- A Hermes Agent skill for driving this connector now lives on my machine at
+  `~/.hermes/skills/knowledge/siyuan-mcp/SKILL.md`. Deliberately not committed — it is agent
+  configuration, not connector code, and it hardcodes one deployment's URL.
+
+**Learned**
+- **The PF collision is `get_next_sequence_value` behaving exactly as documented, not a bug.**
+  Its own description says it reads the current maximum and returns max+1, is not an atomic
+  counter, and that two near-simultaneous calls can return the same value. Two sessions filed
+  findings ~2.5h apart and both got 46. Renumbering fixes the instance, not the mechanism.
+- **SiYuan has no auto-increment / unique-ID field type.** Confirmed against `KEY_TYPES` in
+  `mcp-server/handlers/av.ts`: text, number, date, select, mSelect, url, email, phone, mAsset,
+  template, created, updated, checkbox, relation, rollup, lineNumber. `lineNumber` is row
+  position and silently reassigns on delete or reorder, so it cannot serve as a stable ID. No
+  upstream issue proposing one was findable. A manually-maintained PF-# column remains the only
+  option, and collisions remain possible by construction.
+- **`set_database_cell` wants the row id from `render_database` (`rows[].id`)**, not the
+  `blockID` that appears in `get_database`'s `keyValues`. They coincide for the detached rows in
+  this database, but the tool description is explicit that they do not always.
+- **`get_database` on Project Findings no longer fits in one tool result** (~302k chars / 7,240
+  lines). `render_database` with a `fields` allowlist is the practical read when only one column
+  is needed — which is what PF-26 added it for.
+
+**Did not work**
+- `resolve_database_ids` called with an `ids` parameter returned `{}` — no error. The real
+  parameters are `item_ids` and `block_ids`, and the handler's own `validate()` throws when
+  neither is present, so an unrecognised key should have been rejected the same way. As it
+  stands, a typo in the parameter name reads as a successful lookup that found nothing. Worth
+  filing as a finding; not filed here, to avoid taking another sequence number in the middle of
+  fixing a sequence collision.
+
+**Left unfinished**
+- **No durable fix for PF numbering.** Three options, none chosen: serialise findings writes to
+  one session at a time; allocate the number at write time and verify uniqueness immediately
+  after; or add a uniqueness guard to the connector so a colliding write fails loudly.
+- **`.claude/settings.json` denies `Bash(git push:*)`, which blocks the branch-and-PR workflow
+  the working agreement requires.** Suggest narrowing it to pushes targeting `main` so a topic
+  branch can still be pushed.
+- **PRs #5–#8 have no NOTES.md entries yet.** PF-29/30/35/36/39/40/42, the view tools, `set_icon`
+  and the usage-guide rewrite are all in the diff, but the reasoning behind them is not in this
+  log.
+
 ## 2026-08-27 — Repo set up for asynchronous collaboration
 
 **Who:** Eric (with Claude Code)
