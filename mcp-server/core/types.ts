@@ -86,6 +86,12 @@ export interface ToolHandler<TArgs = any, TResult = any> {
    * @returns 是否有效
    */
   validate?(args: any): args is TArgs;
+
+  /**
+   * 先校验再执行。服务器分发必须走这个，不要直接调 execute——execute 不会调用
+   * validate，绕过去等于所有参数校验从未生效（PF-50、PF-52）。
+   */
+  safeExecute(args: any, context: ExecutionContext): Promise<TResult>;
 }
 
 /**

@@ -140,7 +140,7 @@ export class UpdateDocumentHandler extends BaseToolHandler<
 > {
   readonly name = 'update_document';
   readonly annotations = { readOnlyHint: false, destructiveHint: true } as const;
-  readonly description = 'Replace the entire content of a note in SiYuan with new markdown content (overwrites existing content)';
+  readonly description = 'Replace the entire content of a note in SiYuan with new markdown content. Multi-block markdown is what this tool is for — headings, paragraphs, lists and tables all land. It writes the new content first and only then removes the old blocks, so a failure leaves the original in place rather than an empty document, and it reads back at each step. Use update_block instead to change one block inside a large note without resending the rest.';
   readonly inputSchema: JSONSchema = {
     type: 'object',
     properties: {
@@ -156,9 +156,17 @@ export class UpdateDocumentHandler extends BaseToolHandler<
     required: ['document_id', 'content'],
   };
 
-  async execute(args: any, context: ExecutionContext): Promise<{ success: boolean; document_id: string }> {
-    await context.siyuan.overwriteFile(args.document_id, args.content);
-    return { success: true, document_id: args.document_id };
+  async execute(
+    args: any,
+    context: ExecutionContext
+  ): Promise<{ success: boolean; document_id: string; blocks_written: number; blocks_removed: number }> {
+    const r = await context.siyuan.replaceDocumentContent(args.document_id, args.content);
+    return {
+      success: true,
+      document_id: args.document_id,
+      blocks_written: r.blocksWritten,
+      blocks_removed: r.blocksRemoved,
+    };
   }
 }
 
