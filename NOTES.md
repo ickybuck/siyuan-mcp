@@ -62,8 +62,14 @@ Worth recording, in rough order of value to the next person:
 - **The operational rule that follows: after a redeploy, reconnect the MCP client — do not
   investigate the container.** The symptom points squarely at the wrong layer, and this cost real
   time to establish.
-- **Redeployment is automatic and fast** — roughly ninety seconds from merge to a new container.
-  There is no meaningful window in which the running container lags `main`.
+- **CORRECTION (same day): redeployment is NOT automatic.** This entry first claimed it was,
+  on the strength of the container appearing ninety seconds after the merge. That was the
+  collaborator redeploying promptly, not automation. The workflow only builds and pushes to
+  GHCR — it has no deploy step and never contacts the NAS. The container is pinned to an
+  immutable `sha-<full-commit-sha>` tag, and there is no watchtower/diun, no systemd timer and
+  no user crontab; `siyuan-mcp` carries no `ix-` prefix, so it is hand-managed rather than a
+  TrueNAS app. **A merge to `main` does not update the running connector — somebody has to
+  redeploy it.** Not fully excluded: root's crontab needs a password and was not read.
 - **The SiYuan kernel is `b3log/siyuan:v3.8.1`; upstream latest is `v3.8.2` (2026-08-30).** One
   patch release behind. The local `b3log/siyuan:latest` tag points at the same digest as `v3.8.1`
   and is 13 days old, so `latest` on that box is not actually latest. The container is pinned
