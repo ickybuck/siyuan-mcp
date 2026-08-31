@@ -35,6 +35,67 @@ Worth recording, in rough order of value to the next person:
 
 ---
 
+## 2026-08-31 — PF-45 closed from the server end; PF-50 filed; deployment verified
+
+**Who:** Eric (second developer, Claude Code — MCP session)
+**Branch / PR:** `docs/notes-2026-08-31-deploy`
+
+**Changed**
+- **PF-45 closed.** Status `Closed`, Updated 2026-08-31, with a resolution appended to its notes.
+  The original 3,331-character note is preserved verbatim as an exact prefix — verified
+  programmatically, not by eye, because setting a text cell replaces the whole value.
+- **PF-50 filed:** `resolve_database_ids` returns `{}` for an unrecognised parameter name instead
+  of rejecting it. Bug / New / Owner Code.
+- 32 superseded `ghcr.io/ickybuck/siyuan-mcp` images pruned from the NAS, keeping only the running
+  one. All remain in GHCR.
+- No code changes.
+
+**Learned**
+- **PF-45 was a client-side manifest cache, not a stale container.** That finding explicitly said
+  the question could not be settled from a chat client and needed checking from the server end.
+  It now has been. The running container is `sha-0cab7a8c750b6d8c6c05bc0da67ec5bbbf691966` — a
+  full 40-character match to what was `main` at the time, the PR #8 merge that *added* the four
+  tools reported missing. The container was recreated 1m44s after that merge; the PF-45 row was
+  written about two hours later. A second MCP client, on the same container, is offered all four
+  tools. So the server was current the whole time and one client held a `tools/list` cached at
+  session start.
+- **The operational rule that follows: after a redeploy, reconnect the MCP client — do not
+  investigate the container.** The symptom points squarely at the wrong layer, and this cost real
+  time to establish.
+- **Redeployment is automatic and fast** — roughly ninety seconds from merge to a new container.
+  There is no meaningful window in which the running container lags `main`.
+- **The SiYuan kernel is `b3log/siyuan:v3.8.1`; upstream latest is `v3.8.2` (2026-08-30).** One
+  patch release behind. The local `b3log/siyuan:latest` tag points at the same digest as `v3.8.1`
+  and is 13 days old, so `latest` on that box is not actually latest. The container is pinned
+  explicitly, which is why it has not drifted. Note this also puts the `make init` reference pin
+  (v3.1.17) seven minor versions behind the kernel actually in use.
+- **`get_next_sequence_value` was used the way it has to be used to be safe:** called immediately
+  before the write, not carried across a gap, with uniqueness verified by reading the whole
+  database back afterward. Both times it returned the expected value and both times the read-back
+  confirmed no duplicates and no gaps.
+
+**Did not work**
+- Probing the deployed MCP server over HTTP from the NAS host was a dead end and briefly
+  misleading. Port 3000 on the host is **Docmost**, not this connector, and it answered a POST to
+  `/mcp` with `401 Unauthorized` — which looked like evidence that the connector requires an auth
+  header it does not. The connector's port is not published to the host at all; it exists only on
+  the Docker network, which is why Hermes reaches it as `siyuan-mcp:3000`. Identify what is
+  actually listening before drawing conclusions from its responses.
+
+**Left unfinished**
+- **Docker access on the NAS is not granted, deliberately.** `truenas_admin` is in
+  `builtin_administrators` but not the `docker` group, and sudo needs a password. Adding the
+  group would work — the socket is `root:docker`, mode 660 — but docker socket access is
+  root-equivalent (`docker run -v /:/host`), so it is a privilege decision rather than a
+  convenience one and was left to a deliberate choice. Note also that TrueNAS mounts its root
+  filesystem read-only and regenerates users and sudoers from its config database, so any such
+  change must be made through the UI; `usermod` or a `sudoers.d` edit would not survive.
+- **Whether to take SiYuan v3.8.2.** Not urgent, and not casual: this connector is developed
+  against live kernel behaviour and much of this database catalogues kernel quirks, so a bump can
+  invalidate findings quietly. If taken: snapshot first, pin the new tag explicitly rather than
+  using `latest`, and re-run the regression sweep.
+- **PRs #5–#8 still have no NOTES.md entries.**
+
 ## 2026-08-31 — PF ID collision fixed; Hermes skill for this connector
 
 **Who:** Eric (second developer, Claude Code — MCP session)
