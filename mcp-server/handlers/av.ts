@@ -168,7 +168,7 @@ export class AddDatabaseRowsWithValuesHandler extends BaseToolHandler<
   readonly name = 'add_database_rows_with_values';
   readonly annotations = { readOnlyHint: false, destructiveHint: false } as const;
   readonly description = `Create detached rows AND set all their cell values in one call — the tool to use for bulk import. Each row is an object mapping field ID to value, including the primary-key field. This replaces the create-then-render-then-set-each-cell sequence: 100 rows of 10 fields is one call here versus roughly 1,002 otherwise. ${CELL_VALUE_DESCRIPTION}
-RETRY SAFETY, verified against the kernel: a chunk is atomic, so if it fails nothing in it was written and it is safe to send again. But a chunk that SUCCEEDS and is sent again creates duplicate rows. After a timeout or any uncertain failure, do not blindly retry — either read the database back first, or use item_id. Giving each row an "item_id" pins its row ID, and re-sending a row with an id that already exists updates it instead of duplicating, which makes an import safely resumable. item_id must be 14 digits, a hyphen, then 7 lowercase alphanumerics; derive it from something stable in the source data (deriveItemId in the library helps with this).
+RETRY SAFETY: a chunk is atomic, so if it fails nothing in it was written and it is safe to send again. Giving each row an "item_id" pins its row ID and prevents duplicates on a retry. It does NOT update: SiYuan recognises an existing item_id, declines to duplicate it, and discards the values while still reporting the row as written — so a colliding item_id is rejected here by default, naming the collisions. To resume an interrupted import pass on_existing: "skip"; to change rows that already exist use set_database_cells. item_id must be 14 digits, a hyphen, then 7 lowercase alphanumerics; derive it from something stable in the source data (deriveItemId in the library helps with this).
 An unknown field ID causes SiYuan to reject the whole batch, so this tool checks IDs up front and names the offender. Every row must also carry a non-empty value for the primary-key field — specific to this endpoint (appendAttributeViewDetachedBlocksWithValues): if it is missing, null, or an empty string, SiYuan silently creates no row at all for that entry (row_count still reports the number of rows submitted, not written). Any non-empty string works, even a single space, but genuinely empty never does, and there is no flag to opt around it on this call. If a blank title is genuinely needed, use add_database_rows instead (a different endpoint that does accept an empty or omitted title) and fill in the other fields afterward with set_database_cell. Rejected up front by row index instead of shipped to the kernel. Rows are chunked (default 100, confirmed working up to at least 300 in a single call) because the kernel has historically been unstable under very large or rapid writes. Take a snapshot with create_snapshot before a large import. Rows created this way are detached: they live only in the database and are not bound to document blocks.
 select/mSelect values that don't match an existing option are silently created as new options — case-sensitive, whitespace-trimmed but otherwise unvalidated. Set validate_options to catch this instead of discovering it later as a near-duplicate option.
 VERIFYING A LARGE IMPORT: row_count and a total from get_database_primary_key_values only prove a count, not that specific rows survived — two batches can sum to the expected total while a contiguous block in the middle went missing (e.g. from partial consumption of a paginated source). Spot-check a handful of known keys with render_database's query param, or get_database_primary_key_values with keyword, rather than trusting the totals alone.`;
@@ -189,16 +189,29 @@ VERIFYING A LARGE IMPORT: row_count and a total from get_database_primary_key_va
         type: 'boolean',
         description: 'When true, reject the call up front if any select/mSelect value is not already an existing option for its field — instead of letting SiYuan silently create a new, possibly near-duplicate option. Pre-seed the allowed set with configure_select_options first. Defaults to false, since creating new options is often exactly what is wanted.',
       },
+      on_existing: {
+        type: 'string',
+        enum: ['reject', 'skip'],
+        description: 'What to do when a row carries an item_id that already exists. "reject" (default) refuses the whole call and names the collisions; "skip" omits those rows and reports how many were skipped, which is what resuming an interrupted import wants. This tool only ADDS — it never updates an existing row; use set_database_cells for that.',
+      },
     },
     required: ['av_id', 'rows'],
   };
 
-  async execute(args: any, context: ExecutionContext): Promise<{ row_count: number; chunks: number }> {
+  async execute(
+    args: any,
+    context: ExecutionContext
+  ): Promise<{ row_count: number; chunks: number; skipped_existing?: number }> {
     const r = await context.siyuan.av.appendDetachedRowsWithValues(args.av_id, args.rows, {
       chunkSize: args.chunk_size,
       validateOptions: args.validate_options,
+      onExistingItem: args.on_existing,
     });
-    return { row_count: r.rowCount, chunks: r.chunks };
+    return {
+      row_count: r.rowCount,
+      chunks: r.chunks,
+      ...(r.skippedExisting ? { skipped_existing: r.skippedExisting } : {}),
+    };
   }
 }
 
@@ -527,7 +540,7 @@ export class EmbedDatabaseHandler extends BaseToolHandler<
     type: 'object',
     properties: {
       av_id: { type: 'string', description: 'The database ID to embed (from create_database)' },
-      parent_id: { type: 'string', description: 'Parent block ID to insert under, as the last child' },
+      parent_id: { type: 'string', description: 'Parent block ID (usually a document ID) to append under, as the last child. SiYuan\'s own insert puts a parent-anchored block FIRST, not last; this tool anchors to the current last child instead and verifies the resulting position, failing loudly if the block still landed elsewhere. For a specific spot, use previous_id.' },
       previous_id: { type: 'string', description: 'Insert immediately after this block ID' },
       next_id: { type: 'string', description: 'Insert immediately before this block ID' },
       layout: {

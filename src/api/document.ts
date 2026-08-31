@@ -16,7 +16,36 @@ export class SiyuanDocumentApi {
    * @param markdown Markdown 内容
    * @returns 新创建的文档 ID
    */
-  async createDocument(notebookId: string, path: string, markdown: string): Promise<string> {
+  async createDocument(
+    notebookId: string,
+    path: string,
+    markdown: string,
+    options: { createParents?: boolean } = {}
+  ): Promise<string> {
+    // 路径里出现 HTML 实体几乎一定是调用方那侧转义过了。&amp; 与 & 是两个不同的名字，
+    // 于是路径匹配不上任何既有文档——而下面那条内核行为会把匹配不上变成"凭空造一棵树"。
+    // 一次这样的调用造出过三个空壳文档，真正的正文在影子树里躺了一天（PF-48）。
+    const entity = /&(amp|lt|gt|quot|#39|nbsp);/.exec(path);
+    if (entity) {
+      throw new Error(
+        `The path contains the HTML entity "${entity[0]}" — paths are not HTML and SiYuan does not decode entities, so this would create a document literally named with "${entity[0]}" instead of matching the one you meant. Pass raw text: "&", not "&amp;". Nothing was created.`
+      );
+    }
+
+    // 父路径不存在时，内核会把缺失的每一层都悄悄建出来，然后报成功。一个编码差异就能
+    // 长出一整棵看起来像模像样的影子目录。默认改为报错，要自动建父级得显式开口。
+    const segments = path.split('/').filter(Boolean);
+    if (segments.length > 1 && !options.createParents) {
+      const parentPath = '/' + segments.slice(0, -1).join('/');
+      const existing = await this.getDocIdsByPath(notebookId, parentPath);
+      if (!existing.length) {
+        throw new Error(
+          `The parent path "${parentPath}" does not exist in this notebook, and creating the missing levels silently is exactly how a shadow hierarchy appears — one encoding difference and the real tree gains a plausible-looking duplicate. Nothing was created. ` +
+            `Create the parents deliberately, or pass create_parents to have them made here. Addressing by parent document ID rather than by path avoids this class of problem entirely, since an ID cannot half-match.`
+        );
+      }
+    }
+
     const response = await this.client.request<string>('/api/filetree/createDocWithMd', {
       notebook: notebookId,
       path: path,
@@ -28,6 +57,30 @@ export class SiyuanDocumentApi {
     }
 
     return response.data;
+  }
+
+  /**
+   * 建文档并读回它真正落在哪里。
+   *
+   * 只回一个 ID 时，调用方无从分辨"建在了要的位置"和"建在了内核顺手造出来的影子树里"——
+   * 两种情况的返回值一模一样。把 box 和 hpath 读回来一并返回，位置不对当场就看得见（PF-48）。
+   */
+  async createDocumentVerified(
+    notebookId: string,
+    path: string,
+    markdown: string,
+    options: { createParents?: boolean } = {}
+  ): Promise<{ document_id: string; notebook_id: string; path: string; title: string }> {
+    const id = await this.createDocument(notebookId, path, markdown, options);
+
+    const attrs = await this.client.request<Record<string, string>>('/api/attr/getBlockAttrs', { id });
+    return {
+      document_id: id,
+      notebook_id: attrs.data?.box || notebookId,
+      // hpath 是标题串成的人类可读路径，正是要核对的那个；读不到就退回请求里的值。
+      path: attrs.data?.['custom-hpath'] || attrs.data?.hpath || path,
+      title: attrs.data?.title ?? '',
+    };
   }
 
   /**
@@ -117,6 +170,18 @@ export class SiyuanDocumentApi {
 
     if (response.code !== 0) {
       throw new Error(`Failed to rename document: ${response.msg}`);
+    }
+
+    // blocks.content 里的标题在改名后可能好几分钟还是旧值，于是按文件名搜索和
+    // get_document_tree 都会说这次改名没生效。真正即时的是块属性，读它来确认——
+    // 否则调用方按"写完读回来"的规矩去查，反而查出一个错误结论（PF-49）。
+    const attrs = await this.client.request<Record<string, string>>('/api/attr/getBlockAttrs', { id });
+    const stored = attrs.data?.title ?? '';
+    const wanted = title.trim();
+    if (stored !== wanted) {
+      throw new Error(
+        `SiYuan reported the rename of ${id} as successful, but its title reads ${JSON.stringify(stored)} rather than ${JSON.stringify(wanted)}.`
+      );
     }
   }
 

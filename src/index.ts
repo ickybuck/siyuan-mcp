@@ -212,8 +212,13 @@ export class SiyuanTools {
    * @param content Markdown 内容
    * @returns 新创建的文档 ID
    */
-  async createFile(notebookId: string, path: string, content: string): Promise<string> {
-    return this.document.createDocument(notebookId, path, content);
+  async createFile(
+    notebookId: string,
+    path: string,
+    content: string,
+    options: { createParents?: boolean } = {}
+  ): Promise<string> {
+    return this.document.createDocument(notebookId, path, content, options);
   }
 
   /**
