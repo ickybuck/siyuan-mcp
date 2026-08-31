@@ -80,9 +80,14 @@ Worth recording, in rough order of value to the next person:
 - **No durable fix for PF numbering.** Three options, none chosen: serialise findings writes to
   one session at a time; allocate the number at write time and verify uniqueness immediately
   after; or add a uniqueness guard to the connector so a colliding write fails loudly.
-- **`.claude/settings.json` denies `Bash(git push:*)`, which blocks the branch-and-PR workflow
-  the working agreement requires.** Suggest narrowing it to pushes targeting `main` so a topic
-  branch can still be pushed.
+- **The `Bash(git push:*)` deny in `.claude/settings.json` is not a reliable guardrail.** It is
+  loaded from the session's project root, so it only applies to a session started inside this
+  repo. This session was rooted at the parent home directory, never loaded the file, and pushed
+  this branch without resistance. So the deny stops the workflow it was not meant to stop (a
+  repo-rooted session opening a PR) and does not stop what it was meant to stop (any session
+  pushing to `main`), depending only on which directory Claude Code was started from. Worth
+  either narrowing it to `main` and accepting it as advisory, or moving the protection to where
+  it actually binds — a branch protection rule on GitHub.
 - **PRs #5–#8 have no NOTES.md entries yet.** PF-29/30/35/36/39/40/42, the view tools, `set_icon`
   and the usage-guide rewrite are all in the diff, but the reasoning behind them is not in this
   log.
