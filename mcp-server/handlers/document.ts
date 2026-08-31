@@ -71,12 +71,12 @@ export class GetDocumentContentHandler extends BaseToolHandler<{ document_id: st
  * 创建文档
  */
 export class CreateDocumentHandler extends BaseToolHandler<
-  { notebook_id: string; path: string; content: string },
-  string
+  { notebook_id: string; path: string; content: string; create_parents?: boolean },
+  { document_id: string; notebook_id: string; path: string; title: string }
 > {
   readonly name = 'create_document';
   readonly annotations = { readOnlyHint: false, destructiveHint: false } as const;
-  readonly description = 'Create a new note document in a SiYuan notebook with markdown content';
+  readonly description = 'Create a new note document in a SiYuan notebook with markdown content. The parent path must already exist — a missing parent is an error, not an invitation to invent one, because SiYuan would create every missing level silently and leave the real content in a shadow tree. Pass create_parents to make them deliberately. Prefer addressing by parent document ID over a path string where a tool offers it: a path is the whole failure surface, since one encoding difference matches nothing, while an ID cannot half-match.';
   readonly inputSchema: JSONSchema = {
     type: 'object',
     properties: {
@@ -92,12 +92,19 @@ export class CreateDocumentHandler extends BaseToolHandler<
         type: 'string',
         description: 'Markdown content for the new note',
       },
+      create_parents: {
+        type: 'boolean',
+        description: 'Create the missing levels of the path instead of failing. Off by default: silent parent creation is how a shadow hierarchy appears. Pass true only when you mean to add those levels.',
+      },
     },
     required: ['notebook_id', 'path', 'content'],
   };
 
-  async execute(args: any, context: ExecutionContext): Promise<string> {
-    return await context.siyuan.createFile(args.notebook_id, args.path, args.content);
+  async execute(args: any, context: ExecutionContext): Promise<{ document_id: string; notebook_id: string; path: string; title: string }> {
+    // 返回读回来的落点，而不只是一个 ID：ID 本身分不出"建对了地方"和"建进了影子树"。
+    return await context.siyuan.document.createDocumentVerified(args.notebook_id, args.path, args.content, {
+      createParents: args.create_parents,
+    });
   }
 }
 

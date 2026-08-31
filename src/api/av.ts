@@ -381,14 +381,32 @@ export class SiyuanAvApi {
     const blockID = newNodeId();
     const dom = `<div class="av" data-node-id="${blockID}" data-av-id="${avID}" data-type="NodeAttributeView" data-av-type="${layout}"></div>`;
 
+    // 只给 parentID 时，内核把块插在第一个子块的位置，而不是文档末尾——嵌入成功、
+    // 返回块 ID、数据也对，唯独位置在顶部，除非正好去看一眼，否则不会发现。改成先取
+    // 最后一个子块，用 previousID 锚在它后面，真正做到"追加"（PF-56）。
+    let previousID = anchor.previousID;
+    let parentID = anchor.parentID;
+    let appending = false;
+    if (parentID && !previousID && !anchor.nextID) {
+      appending = true;
+      const children = await this.client.request<Array<{ id: string }>>('/api/block/getChildBlocks', {
+        id: parentID,
+      });
+      const last = (children.data || []).slice(-1)[0];
+      if (last?.id) {
+        previousID = last.id;
+        parentID = undefined;
+      }
+    }
+
     const response = await this.client.request<Array<{ doOperations: Array<{ id: string }> }>>(
       '/api/block/insertBlock',
       {
         dataType: 'dom',
         data: dom,
         nextID: anchor.nextID,
-        previousID: anchor.previousID,
-        parentID: anchor.parentID,
+        previousID,
+        parentID,
       }
     );
 
@@ -396,7 +414,22 @@ export class SiyuanAvApi {
       throw new Error(`Failed to embed database: ${response.msg}`);
     }
 
-    return response.data[0].doOperations[0].id;
+    const insertedID = response.data[0].doOperations[0].id;
+
+    if (appending && anchor.parentID) {
+      const after = await this.client.request<Array<{ id: string }>>('/api/block/getChildBlocks', {
+        id: anchor.parentID,
+      });
+      const children = after.data || [];
+      const index = children.findIndex((child) => child.id === insertedID);
+      if (index >= 0 && index !== children.length - 1) {
+        throw new Error(
+          `The database block ${insertedID} was embedded under ${anchor.parentID} but landed at position ${index + 1} of ${children.length}, not at the end. The embed itself worked and the data is correct — move the block, or delete it and retry with previous_id naming the block it should follow.`
+        );
+      }
+    }
+
+    return insertedID;
   }
 
   /**
@@ -668,8 +701,10 @@ export class SiyuanAvApi {
       chunkSize?: number;
       keyTypes?: Map<string, AvKeyType | 'block'>;
       validateOptions?: boolean;
+      onExistingItem?: 'reject' | 'skip';
     } = {}
-  ): Promise<{ rowCount: number; chunks: number }> {
+  ): Promise<{ rowCount: number; chunks: number; skippedExisting?: number }> {
+    let skippedExisting = 0;
     if (!rows.length) return { rowCount: 0, chunks: 0 };
 
     const keyTypes = options.keyTypes ?? (await this.getKeyTypes(avID));
@@ -713,6 +748,39 @@ export class SiyuanAvApi {
               `(a different kernel endpoint that does accept an empty/omitted title) and set the other field ` +
               `values afterward with set_database_cell — this call cannot safely opt around the check.`
           );
+        }
+      }
+    }
+
+    // item_id 撞上已有行时，内核既不建新行也不更新——它认得这个 ID（所以不会重复建行），
+    // 却把整行的值丢掉，然后照报 row_count。文档里"重发同一个 item_id 会原地更新"这句话
+    // 恰恰把调用方引向失败最不容易被发现的场景：导入中断后的补写。一次这样的调用丢掉了
+    // 三十来个单元格的更新，而返回值说全写成功（PF-46）。
+    // 默认整批拒绝并点名撞上的 ID；续跑导入可以用 onExistingItem: 'skip' 明确跳过。
+    const submittedItemIDs = rows
+      .map((row) => row[ITEM_ID_KEY] as string | undefined)
+      .filter((id): id is string => !!id);
+    if (submittedItemIDs.length) {
+      const existing = await this.getAttributeView(avID);
+      const blockKV = (existing.keyValues || []).find((kv: any) => kv?.key?.type === 'block');
+      const known = new Set((blockKV?.values || []).map((v: any) => v?.blockID).filter(Boolean));
+      const collisions = submittedItemIDs.filter((id) => known.has(id));
+
+      if (collisions.length) {
+        if (options.onExistingItem !== 'skip') {
+          throw new Error(
+            `${collisions.length} row(s) carry an item_id that already exists in this database: ${collisions.slice(0, 5).map((id) => `"${id}"`).join(', ')}${collisions.length > 5 ? ', …' : ''}. ` +
+              `This tool only ADDS rows — SiYuan recognises the existing id, declines to duplicate it, and then discards the values instead of applying them, while still reporting the row as written. ` +
+              `To change existing rows use set_database_cells. To resume an interrupted import, pass on_existing: "skip" and the rows that already landed will be skipped and counted rather than silently dropped. Nothing was written.`
+          );
+        }
+        rows = rows.filter((row) => {
+          const itemID = row[ITEM_ID_KEY] as string | undefined;
+          return !itemID || !known.has(itemID);
+        });
+        skippedExisting = collisions.length;
+        if (!rows.length) {
+          return { rowCount: 0, chunks: 0, skippedExisting };
         }
       }
     }
@@ -790,7 +858,7 @@ export class SiyuanAvApi {
       chunks++;
     }
 
-    return { rowCount: rows.length, chunks };
+    return { rowCount: rows.length, chunks, ...(skippedExisting ? { skippedExisting } : {}) };
   }
 
   /**

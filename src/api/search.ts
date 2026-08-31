@@ -118,6 +118,18 @@ export class SiyuanSearchApi {
    * 将Block数组转换为搜索结果响应
    */
   private toSearchResultResponse(blocks: Block[]): SearchResultResponse[] {
+    // 同一个 id 曾经返回过两行、标题还互相矛盾（PF-47）。当前构建上复现不出来，
+    // 索引里那个文档也只有一行，所以那多半是一条过时的索引行——和 PF-49 同族。
+    // 按 id 去重当兜底：出现一次就够贵了，按名字去重会把一个文档数成两个，而这
+    // 正好砸在 emoji 标题迁移的清点上。
+    const seen = new Set<string>();
+    blocks = (blocks as any[]).filter((b) => {
+      if (!b?.id) return true;
+      if (seen.has(b.id)) return false;
+      seen.add(b.id);
+      return true;
+    });
+
     return blocks.map(block => ({
       id: block.id,
       name: block.name || extractTitle(block.content),

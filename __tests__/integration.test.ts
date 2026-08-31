@@ -156,10 +156,12 @@ describe('SiYuan MCP Server Integration Tests', () => {
       );
 
       expect(result).toBeDefined();
-      expect(typeof result).toBe('string');
-      testDocumentId = result;
+      expect(typeof result.document_id).toBe('string');
+      // 返回的是读回来的落点，路径要能对上请求，否则说明建到影子树里去了
+      expect(result.path).toContain(`test-doc-${timestamp}`);
+      testDocumentId = result.document_id;
 
-      console.log(`✓ Created document with ID: ${testDocumentId}`);
+      console.log(`✓ Created document with ID: ${testDocumentId} at ${result.path}`);
     });
 
     test('GetDocumentContentHandler - should get document content', async () => {

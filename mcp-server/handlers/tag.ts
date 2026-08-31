@@ -4,6 +4,7 @@
 
 import { BaseToolHandler } from './base.js';
 import type { ExecutionContext, JSONSchema } from '../core/types.js';
+import type { ReplaceTagResult } from '../../src/api/tag.js';
 
 /**
  * 列出所有标签
@@ -41,13 +42,13 @@ export class ListAllTagsHandler extends BaseToolHandler<
  * 替换标签
  */
 export class ReplaceTagHandler extends BaseToolHandler<
-  { old_tag: string; new_tag: string },
-  boolean
+  { old_tag: string; new_tag?: string },
+  ReplaceTagResult
 > {
   readonly name = 'batch_replace_tag';
   readonly annotations = { readOnlyHint: false, destructiveHint: true } as const;
   readonly description =
-    'Rename or remove a tag across all notes in SiYuan. Useful for reorganizing your knowledge base tags. Use empty string for new_tag to remove the tag entirely';
+    'Rename or remove a tag across all notes in SiYuan. Omit new_tag (or pass an empty string) to remove the tag entirely. Returns how many blocks carried the tag, their IDs, and how many still carry it afterwards — a tag that matches nothing is an error rather than a success, since a misspelled tag name would otherwise be indistinguishable from a completed rename.';
   readonly inputSchema: JSONSchema = {
     type: 'object',
     properties: {
@@ -58,13 +59,13 @@ export class ReplaceTagHandler extends BaseToolHandler<
       new_tag: {
         type: 'string',
         description:
-          'New tag name to replace with (without # symbol, e.g., "new-tag"). Use empty string to remove the tag.',
+          'New tag name to replace with (without # symbol, e.g., "new-tag"). Omit it, or pass an empty string, to remove the tag.',
       },
     },
-    required: ['old_tag', 'new_tag'],
+    required: ['old_tag'],
   };
 
-  async execute(args: any, context: ExecutionContext): Promise<boolean> {
+  async execute(args: any, context: ExecutionContext): Promise<ReplaceTagResult> {
     const oldTag = args.old_tag;
     const newTag = args.new_tag || '';
     return await context.siyuan.tag.replaceTag(oldTag, newTag);

@@ -110,9 +110,15 @@ contiguous, and looks exactly like a complete import.
 alphanumerics, e.g. \`20230713000000-a3f9c2d\`. Build it as: the source row's *date only*
 (\`YYYYMMDD\` + \`000000\`) — deliberately not time-of-day, since ambiguous time fields are what
 produce silent collisions — plus the last 7 characters of the source's own record ID, which
-inherits uniqueness rather than computing it. Re-sending a row whose \`item_id\` exists **updates
-it in place**, which is what makes an interrupted import safely re-runnable. Without it, a retry
-after a timeout doubles the data.
+inherits uniqueness rather than computing it. Without it, a retry after a timeout doubles the data.
+
+**\`item_id\` prevents duplicates. It does not update.** SiYuan recognises an existing \`item_id\`,
+declines to create a second row — and then discards the values instead of applying them, while
+still counting the row as written. This guide previously claimed the opposite, and that claim cost
+about thirty cell updates across eleven rows, reported as written and never stored. A colliding
+\`item_id\` is now rejected by default, naming the collisions. To resume an interrupted import pass
+\`on_existing: "skip"\`, which omits the rows that already landed and tells you how many. To change
+rows that exist, use \`set_database_cells\`.
 
 **Migration fidelity.** When a source field is ambiguous or inconsistently formatted, copy it
 verbatim and log the data-quality issue separately. Reinterpreting source data mid-migration
@@ -128,6 +134,15 @@ single unchunked calls of 300+ are proven fine; the true ceiling is unmeasured a
 not chased, so assume nothing beyond "300+ works". If a bulk operation throttles, check which side
 is the bottleneck: a rate limit on the system being *read from* calls for backing off those reads,
 not for shrinking SiYuan write batches that were never the constraint.
+
+**Create documents by parent ID where you can, not by path string.** A path is the whole failure
+surface: one encoding difference matches nothing, and SiYuan responds to a path that resolves to
+nothing by inventing every missing level and reporting success — a shadow hierarchy that looks
+plausible in the file tree, with the real content inside it. That happened here: one call produced
+three empty ancestor documents and hid a 206-line brief in them for a day. \`create_document\` now
+refuses a path whose parent does not exist, and refuses HTML entities in a path (\`&amp;\` is not
+\`&\`); pass \`create_parents\` to make the levels deliberately. Tools that take a parent say so in
+their own description; when you have the parent's document ID, prefer it over a path string.
 
 ## Rows bound to real documents
 
