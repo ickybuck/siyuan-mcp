@@ -4,14 +4,23 @@
  */
 
 import type { SiyuanClient } from './client.js';
+import { readBackUntil } from '../utils/readback.js';
 
 export interface ReplaceTagResult {
-  /** 改动前带该标签的块数 */
+  /** 改动前索引里带旧标签的块数。来自 SQL 索引，见 counted_via */
   count: number;
-  /** 改动前带该标签的块 ID（最多 200 个，够核对，不至于把响应撑爆） */
+  /** 改动前带旧标签的块 ID（最多 200 个，够核对，不至于把响应撑爆） */
   updatedIds: string[];
-  /** 改完之后仍然带旧标签的块数，正常为 0 */
+  /** 改完之后索引里仍然带旧标签的块数 */
   remaining: number;
+  /** 改完之后索引里带新标签的块数；删除标签时为 0 */
+  nowCarryingNewTag: number;
+  /** 计数的来源，恒为 sql-index——提醒读数的人这数字有滞后 */
+  counted_via: 'sql-index';
+  /** count 是否可信：只有改完之后新旧两边对得上才为 true */
+  verified: boolean;
+  /** verified 为 false 时说明为什么 */
+  note?: string;
 }
 
 export class SiyuanTagApi {
@@ -20,8 +29,16 @@ export class SiyuanTagApi {
   /**
    * 批量替换标签
    *
-   * 以前只回一个恒为 true 的布尔：改了 800 个块和一个都没匹配上，返回值一模一样，
-   * 而拼错标签名恰恰是最容易犯的错。改成动手前先数一遍、动完再数一遍（PF-54）。
+   * 两版之前只回一个恒为 true 的布尔：改了 800 个块和一个都没匹配上，返回值一模一样，
+   * 而拼错标签名恰恰是最容易犯的错。
+   *
+   * 上一版改成了写前写后各数一遍，但两次都数的是 SQL 索引——索引落后块写入 1–2 秒，
+   * 于是刚打上标签的块根本不在里面。实测两个相隔约 2 秒打标签的块，返回
+   * { count: 1, remaining: 0 }：两个都改成功了，第一个数漏了，而 remaining 用同一个
+   * 滞后的源头给这次漏数盖了章（PF-54 第二轮）。
+   *
+   * 索引是这里唯一能按标签枚举块的途径，换不掉。能做的是别拿它当见证：数字照给，但
+   * 明说它来自索引，并且只有"新标签这边的数 ≥ 旧标签这边少掉的数"时才敢说 verified。
    *
    * @param oldTag 旧标签名(不需要包含#符号)
    * @param newTag 新标签名(不需要包含#符号,空字符串表示删除标签)
@@ -35,10 +52,19 @@ export class SiyuanTagApi {
       throw new Error('old_tag cannot be empty.');
     }
 
-    const before = await this.blocksWithTag(cleanOldTag);
-    if (!before.length) {
+    // 一次读不到就多读几次：块刚打上标签时索引里还没有它，直接判"没有这个标签"会把
+    // 一次合法的改名挡下来。
+    const before = await readBackUntil(
+      () => this.blocksWithTag(cleanOldTag),
+      (ids) => ids.length > 0,
+      { attempts: 4 }
+    );
+    const beforeIds = before.observed ?? [];
+
+    if (!beforeIds.length) {
       throw new Error(
-        `No block carries the tag "#${cleanOldTag}#", so nothing would change. A misspelled tag name used to be indistinguishable from a successful rename here. Check the spelling with list_all_tags. Nothing was changed.`
+        `No block carries the tag "#${cleanOldTag}#" — checked repeatedly over about a second, in case the tag had only just been written. ` +
+          `A misspelled tag name used to be indistinguishable from a successful rename here. Check the spelling with list_all_tags. Nothing was changed.`
       );
     }
 
@@ -55,14 +81,38 @@ export class SiyuanTagApi {
       });
     }
 
-    // 索引落后于写入，读回来之前给它一点时间；仍有残留就照实报，不猜。
-    await new Promise((resolve) => setTimeout(resolve, 800));
-    const after = await this.blocksWithTag(cleanOldTag);
+    // 旧标签这边等它清零；清不了零就照实报，不改口。
+    const after = await readBackUntil(
+      () => this.blocksWithTag(cleanOldTag),
+      (ids) => ids.length === 0
+    );
+    const remaining = (after.observed ?? []).length;
+
+    let nowCarryingNewTag = 0;
+    if (cleanNewTag) {
+      const renamed = await readBackUntil(
+        () => this.blocksWithTag(cleanNewTag),
+        (ids) => ids.length >= beforeIds.length
+      );
+      nowCarryingNewTag = (renamed.observed ?? []).length;
+    }
+
+    // verified 的门槛：旧标签清空了，并且（改名时）新标签这边至少接住了同样多的块。
+    // 两边都从索引读，所以这只是"索引自洽"，不是"内核确认"——note 里把这句说清楚。
+    const consistent = remaining === 0 && (!cleanNewTag || nowCarryingNewTag >= beforeIds.length);
 
     return {
-      count: before.length,
-      updatedIds: before.slice(0, 200),
-      remaining: after.length,
+      count: beforeIds.length,
+      updatedIds: beforeIds.slice(0, 200),
+      remaining,
+      nowCarryingNewTag,
+      counted_via: 'sql-index',
+      verified: consistent,
+      note: consistent
+        ? `Counts come from the SQL index, which trails block writes by a second or two. A block tagged moments before this call can be missing from count without being missing from the rename — treat count as a floor, not a total.`
+        : `Counts come from the SQL index and did not settle: ${remaining} block(s) still read as carrying "#${cleanOldTag}#"` +
+          (cleanNewTag ? `, and ${nowCarryingNewTag} read as carrying "#${cleanNewTag}#" against ${beforeIds.length} seen before the write` : '') +
+          `. This is more often the index lagging than the rename failing, so do not re-issue it blindly — read the tags again in a moment, and only act if the numbers still disagree.`,
     };
   }
 

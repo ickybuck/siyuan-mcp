@@ -384,11 +384,12 @@ export class SaveDocumentAsTemplateHandler extends BaseToolHandler<
  */
 export class RenameDocumentHandler extends BaseToolHandler<
   { document_id: string; title: string },
-  { success: boolean; document_id: string; title: string }
+  { success: boolean; document_id: string; title: string; verified: boolean; note?: string }
 > {
   readonly name = 'rename_document';
   readonly annotations = { readOnlyHint: false, destructiveHint: false } as const;
-  readonly description = 'Rename a note document in SiYuan by ID.';
+  readonly description =
+    'Rename a note document in SiYuan by ID. The rename itself either succeeds or errors; the separate "verified" flag says whether the new title could be read back within about two seconds. verified: false means the read lagged, not that the rename failed — do not retry or roll back on it, just read again in a moment. Searching by the old filename can keep finding the document for minutes afterwards, which is the SQL index trailing and not the rename.';
   readonly inputSchema: JSONSchema = {
     type: 'object',
     properties: {
@@ -404,9 +405,18 @@ export class RenameDocumentHandler extends BaseToolHandler<
     required: ['document_id', 'title'],
   };
 
-  async execute(args: any, context: ExecutionContext): Promise<{ success: boolean; document_id: string; title: string }> {
-    await context.siyuan.document.renameDocumentById(args.document_id, args.title);
-    return { success: true, document_id: args.document_id, title: args.title };
+  async execute(
+    args: any,
+    context: ExecutionContext
+  ): Promise<{ success: boolean; document_id: string; title: string; verified: boolean; note?: string }> {
+    const outcome = await context.siyuan.document.renameDocumentById(args.document_id, args.title);
+    return {
+      success: true,
+      document_id: args.document_id,
+      title: args.title,
+      verified: outcome.verified,
+      ...(outcome.note ? { note: outcome.note } : {}),
+    };
   }
 }
 
@@ -489,10 +499,17 @@ export class SetSortHandler extends BaseToolHandler<
     notebook_sorts?: Array<{ id: string; sort: number }>;
     doc_sorts?: Array<{ id: string; sort: number }>;
   } {
+    // 先跑基类那套：覆写它会连"参数名写错了"的检查一起丢掉，于是拼错的参数名换来的是
+    // 这里这句笼统的"至少给一个"，看不出真正的毛病在名字上（PF-54 第二轮）。
+    super.validate(args);
+
     const notebookSorts = args.notebook_sorts || [];
     const docSorts = args.doc_sorts || [];
     if (notebookSorts.length === 0 && docSorts.length === 0) {
-      throw new Error('Must provide at least one non-empty array of: notebook_sorts, doc_sorts');
+      throw new Error(
+        `${this.name}: provide at least one non-empty array of: notebook_sorts, doc_sorts. ` +
+          `Accepted arguments: ${Object.keys(this.inputSchema.properties ?? {}).join(', ')}.`
+      );
     }
     return true;
   }

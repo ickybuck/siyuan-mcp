@@ -103,6 +103,8 @@ export class SetIconHandler extends BaseToolHandler<
   { success: boolean; icon: string; target_type: string }
 > {
   readonly name = 'set_icon';
+  // 空串就是"清除图标"，是这个工具描述里写着的用法，不是漏填（PF-54 第二轮）
+  readonly allowEmpty = ['icon'];
   readonly annotations = { readOnlyHint: false, destructiveHint: false } as const;
   readonly description =
     'Set the icon on a document, a database, or a notebook — one tool for all three, though SiYuan stores each differently. Pass the emoji itself ("📖") or SiYuan\'s own form, which is lowercase hex codepoints joined by hyphens ("1f4d6"); the conversion is handled here, and it matters because the kernel silently blanks a value it does not recognise, and a bare emoji character is one of those. An empty icon clears it. Note that a database has no icon of its own: the icon belongs to a view, so this sets it on the view named by view_id, or on the database\'s first view.';
