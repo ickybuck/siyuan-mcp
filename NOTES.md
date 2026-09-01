@@ -1,4 +1,29 @@
 # NO
+## 2026-08-31 (evening) — per-document rollback, and four findings
+
+**Who:** Eric (Claude Code — "Code" thread)
+**Branch / PR:** `feat/document-history` (PR #18); deployed as `sha-84a25aace80dfea00bf07262c639cab7105a2d41`
+
+**Changed**
+- `list_document_history`, `get_document_history_content`, `rollback_document` — restore one document without taking the workspace back with it.
+- PF-59: `move_documents` with `to_notebook_root` sent `hpath` where `moveDocs` wants the `.sy` file path. Now sends `path`, and refuses the whole call if any ID does not resolve instead of moving a subset.
+- PF-60: the HTML-entity check moved to `src/utils/entities.ts` and now covers document rename, notebook create/rename and database rename, not only `create_document`.
+- `create_document` accepts empty `content` again (third instance of the `allowEmpty` collision).
+
+**Learned**
+- **The kernel has no "history for document X" endpoint.** `searchHistory` narrows history timestamps by keyword; `getHistoryItems` expands one timestamp into the documents it touched. Per-document listing means filtering those by ID. The title is only used to narrow the search — membership is decided by ID, so a renamed document still resolves, and falls back to scanning timestamps in reverse.
+- **History settings on this instance:** generated every 10 minutes for changed documents, retained 30 days (`generateHistoryInterval`, `historyRetentionDays` from `/api/system/getConf`). A document edited moments ago has no version yet — worth knowing before concluding a tool is broken.
+- **History content comes back as editor DOM,** not markdown. Stripped to text by default; `format: "html"` keeps it.
+- **Two of the four findings were not our bugs.** PF-57 was a duplicate of PF-56, fixed hours before it was filed. PF-58's "No approval received" appears nowhere in this codebase — `insert_block_after` and `insert_block_before` both work called directly against the MCP endpoint, so it came from the client's approval flow. Checking the string against the repo took a minute and settled it.
+
+**Did not work**
+- `node -e` with a heredoc for edits to `src/api/*.ts` again: several replacements silently matched nothing because the files are CRLF and the patterns used `
+`. The counts looked plausible (the import landed, the body did not), which is the dangerous kind of failure. Use the editor against exact read-back text, or check every replacement actually applied.
+- Probing kernel endpoints with empty bodies to see which exist is mostly safe, but `/api/export/exportData` takes no required arguments and simply ran, writing two 2.2 MB workspace zips into `temp/export`. Deleted. Probe with a deliberately invalid argument instead of no arguments.
+
+**Left unfinished**
+- PF-57, PF-58, PF-59, PF-60, PF-62 and PF-64 are with Chat for verification.
+
 ## 2026-08-31 (later) — three verification failures, fixed as two rules
 
 **Who:** Eric (Claude Code — "Code" thread)
