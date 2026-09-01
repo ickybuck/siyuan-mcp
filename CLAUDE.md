@@ -125,3 +125,15 @@ see the other's session history, so the repo has to carry the context.
    one matters most: it is the part the other person cannot reconstruct from the diff.
 5. **Say what is in flight.** If you stop mid-task, put that in `NOTES.md` explicitly rather than
    leaving a branch to be discovered.
+6. **After a verification round, search the findings notes — do not trust the status column.** A
+   finding marked Closed can still carry live work in its notes: a verifier who confirms the main
+   fix often records a smaller problem found along the way rather than opening a row for it. Two
+   were sitting in closed rows on 2026-08-31 — a guard that had been applied to one branch of two,
+   and an inventory that had drifted out of date — and both would have been lost.
+
+   The cheap sweep: for every finding, take the part of its notes after the last `─────` separator
+   (the most recent verification) and search that for `STILL TRUE`, `NOT FIXED`,
+   `STILL OUTSTANDING`, `PARTIAL`, `FOLLOW-UP`, `CAVEAT`, `WORTH A NEW ROW`. Print a few hundred
+   characters around each hit rather than whole notes — they run to several thousand characters
+   each, and pulling them all into a conversation costs more than the sweep is worth. Do it from a
+   script, not by eye.
