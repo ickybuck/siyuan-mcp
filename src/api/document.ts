@@ -184,8 +184,15 @@ export class SiyuanDocumentApi {
     // 更危险，调用方会去重试或回滚一件已经做完的事（PF-49）。
     //
     // 所以：轮询，读到就算确认；读不到只说没确认，不说失败。
+    // 读 kramdown，不读块属性：文档块的 IAL 里带着 title=，改名后立刻就是新值，而
+    // /api/attr/getBlockAttrs 和 blocks.content 都会慢一拍——实测新建文档首次改名后，
+    // 属性接口连读 2 秒仍是旧标题，kramdown 当场就对了。属性作为兜底再读一次。
     const outcome = await readBackUntil(
       async () => {
+        const kramdown = await this.client.request<{ kramdown: string }>('/api/block/getBlockKramdown', { id });
+        const matched = /\btitle="([^"]*)"/.exec(kramdown.data?.kramdown ?? '');
+        if (matched) return matched[1];
+
         const attrs = await this.client.request<Record<string, string>>('/api/attr/getBlockAttrs', { id });
         return attrs.data?.title ?? '';
       },
