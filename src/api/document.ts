@@ -6,7 +6,7 @@ import type { SiyuanClient } from './client.js';
 import type { DocTreeNodeResponse } from '../types/index.js';
 import { extractTitle } from '../utils/format.js';
 import { readBackUntil, unverifiedNote } from '../utils/readback.js';
-import { rejectHtmlEntities } from '../utils/entities.js';
+import { rejectHtmlEntities, unescapeIalValue } from '../utils/entities.js';
 
 export class SiyuanDocumentApi {
   constructor(private client: SiyuanClient) {}
@@ -191,7 +191,9 @@ export class SiyuanDocumentApi {
       async () => {
         const kramdown = await this.client.request<{ kramdown: string }>('/api/block/getBlockKramdown', { id });
         const matched = /\btitle="([^"]*)"/.exec(kramdown.data?.kramdown ?? '');
-        if (matched) return matched[1];
+        // IAL 里的属性值是转义过的：写进去 &，读出来 &amp;。不还原就永远比不相等，
+        // 于是标题带 & 的改名每次都报 verified: false，尽管改名是成功的（PF-65）。
+        if (matched) return unescapeIalValue(matched[1]);
 
         const attrs = await this.client.request<Record<string, string>>('/api/attr/getBlockAttrs', { id });
         return attrs.data?.title ?? '';
@@ -251,13 +253,48 @@ export class SiyuanDocumentApi {
   async moveDocumentsByIds(fromIds: string | string[], toId: string): Promise<void> {
     const fromIdArray = Array.isArray(fromIds) ? fromIds : [fromIds];
 
+    // 和 to_notebook_root 那条分支走同一套先解析再动手：不加这步，一个 ID 写错换来的
+    // 是内核那句光秃秃的 "tree not found"——不说是哪个 ID，也不说有没有动过东西
+    // （PF-59 验证时留下的尾巴）。目标文档一并解析，它写错的可能性一点不小。
+    await this.requireDocuments([...fromIdArray, toId]);
+
     const response = await this.client.request('/api/filetree/moveDocsByID', {
       fromIDs: fromIdArray,
       toID: toId,
     });
 
     if (response.code !== 0) {
-      throw new Error(`Failed to move documents: ${response.msg}`);
+      throw new Error(`Failed to move documents: ${response.msg}. Nothing was moved.`);
+    }
+  }
+
+  /**
+   * 确认这些 ID 都是真实存在的文档，否则报错并点名。
+   *
+   * 带轮询：刚建出来的文档要过一两秒才进索引，而"建完就移"是很自然的写法。第一次
+   * 查不到就直接失败，等于逼调用方自己去猜要等多久（PF-59 验证时的第二条尾巴）。
+   */
+  private async requireDocuments(ids: string[]): Promise<void> {
+    const unique = [...new Set(ids.filter(Boolean))];
+    if (!unique.length) return;
+
+    const quoted = unique.map((id) => `'${id.replace(/'/g, "''")}'`).join(',');
+    const outcome = await readBackUntil(
+      async () => {
+        const response = await this.client.request<any[]>('/api/query/sql', {
+          stmt: `SELECT id FROM blocks WHERE type = 'd' AND id IN (${quoted}) LIMIT ${unique.length}`,
+        });
+        return new Set((response.data || []).map((block: any) => block.id));
+      },
+      (found) => unique.every((id) => found.has(id)),
+      { attempts: 6 }
+    );
+
+    if (!outcome.verified) {
+      const missing = unique.filter((id) => !outcome.observed?.has(id));
+      throw new Error(
+        `No document found for ${missing.map((id) => `"${id}"`).join(', ')} — checked repeatedly over about two seconds, since the SQL index trails writes and a just-created document takes a moment to appear. Nothing was moved.`
+      );
     }
   }
 
@@ -272,24 +309,15 @@ export class SiyuanDocumentApi {
     // moveDocs 要的是 .sy 文件路径（blocks.path，形如 /20260821193048-xxxxxxx.sy），
     // 不是标题拼出来的 hpath。之前取的是 hpath，内核解析不到对应文件，于是回一句
     // "block not found"——听起来像文档不存在，其实文档好好的，是路径给错了类型（PF-59）。
+    // 先确认每个 ID 都在（带轮询，容忍刚建完的文档还没进索引），再去取路径
+    await this.requireDocuments(fromIdArray);
+
     const fromPaths: string[] = [];
-    const missing: string[] = [];
     for (const docId of fromIdArray) {
       const stmt = `SELECT path FROM blocks WHERE id = '${docId.replace(/'/g, "''")}' AND type = 'd' LIMIT 1`;
       const response = await this.client.request<any[]>('/api/query/sql', { stmt });
       const path = (response.data || [])[0]?.path;
-      if (path) {
-        fromPaths.push(path);
-      } else {
-        missing.push(docId);
-      }
-    }
-
-    if (missing.length) {
-      throw new Error(
-        `No document found for ${missing.map((id) => `"${id}"`).join(', ')}. Nothing was moved. ` +
-          `Note the SQL index trails writes by a second or two, so a document created moments ago may not be findable yet.`
-      );
+      if (path) fromPaths.push(path);
     }
 
     // 使用 moveDocs API 移动到笔记本根目录

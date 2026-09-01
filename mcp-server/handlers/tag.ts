@@ -51,7 +51,7 @@ export class ReplaceTagHandler extends BaseToolHandler<
   readonly allowEmpty = ['new_tag'];
   readonly annotations = { readOnlyHint: false, destructiveHint: true } as const;
   readonly description =
-    'Rename or remove a tag across all notes in SiYuan. Omit new_tag (or pass an empty string) to remove the tag entirely. A tag that matches nothing is an error rather than a success, since a misspelled tag name would otherwise be indistinguishable from a completed rename. The counts come from the SQL index, which trails block writes by a second or two, so count is a FLOOR and not a total: a block tagged moments earlier can be renamed without being counted. verified: false means the counts did not settle, which is usually the index lagging rather than the rename failing — read the tags again before acting on it, and do not re-issue the call blindly.';
+    'Rename or remove a tag across all notes in SiYuan. Pass an empty string as new_tag to remove the tag entirely. A tag that matches nothing is an error rather than a success, since a misspelled tag name would otherwise be indistinguishable from a completed rename. The counts come from the SQL index, which trails block writes by a second or two, so count is a FLOOR and not a total: a block tagged moments earlier can be renamed without being counted. verified: false means the counts did not settle, which is usually the index lagging rather than the rename failing — read the tags again before acting on it, and do not re-issue the call blindly.';
   readonly inputSchema: JSONSchema = {
     type: 'object',
     properties: {
@@ -62,10 +62,10 @@ export class ReplaceTagHandler extends BaseToolHandler<
       new_tag: {
         type: 'string',
         description:
-          'New tag name to replace with (without # symbol, e.g., "new-tag"). Omit it, or pass an empty string, to remove the tag.',
+          'New tag name to replace with (without # symbol, e.g., "new-tag"). Pass an empty string to remove the tag entirely.',
       },
     },
-    required: ['old_tag'],
+    required: ['old_tag', 'new_tag'],
   };
 
   async execute(args: any, context: ExecutionContext): Promise<ReplaceTagResult> {
