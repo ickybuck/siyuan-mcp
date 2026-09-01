@@ -1,4 +1,23 @@
 # NO
+## 2026-08-31 (late) — PF-65, and two follow-ups that were hiding inside closed rows
+
+**Who:** Eric (Claude Code — "Code" thread)
+**Branch / PR:** `fix/pf-65-and-followups` (PR #21); deployed as `sha-90168d380178cd342a99a94bad7dc97478d35d04`
+
+**Changed**
+- PF-65: `rename_document` returned `verified: false` for every title containing `&`. The kramdown IAL stores attribute values XML-escaped, so the raw `&` sent in never matched the `&amp;` read back. The IAL value is now unescaped before comparison (`unescapeIalValue` in `src/utils/entities.ts`).
+- `move_documents`: the resolve-first guard covered only the `to_notebook_root` branch. Both branches now share `requireDocuments`, which also validates the destination ID, and polls ~2s so a create-then-move sequence stops failing on index lag.
+- `batch_replace_tag`: `new_tag` is required again, taking its empty case from `allowEmpty` like `set_icon` and `set_database_cell`.
+
+**Learned**
+- **Two fixes can collide in the verification layer without either being wrong.** PF-49 moved the rename read-back to kramdown because it is live; PF-60 made ampersands reachable in titles again. Neither is a mistake, and together they made `verified` meaningless for a common class of titles. Worth asking, when a read-back compares user text to something read back, what the storage layer does to that text on the way through.
+- **A wrong signal is worse than no signal.** Nothing was ever lost here — the rename always landed and the note correctly said not to retry. The cost was that `verified` stopped meaning anything for titles with an ampersand, which teaches the caller to ignore it.
+- **Findings recorded inside closed rows are easy to lose.** Two live follow-ups were sitting in the notes of PF-42 and PF-59 with the rows marked Closed: the `allowEmpty` inventory being inconsistent, and the move guard covering one branch. A grep of every note's last verification section for phrases like "STILL TRUE" and "NOT FIXED" surfaced them in one pass. Worth repeating after any verification round rather than trusting the status column alone.
+
+**Left unfinished**
+- PF-65 is with Chat for verification. PF-42 and PF-59 are closed with their follow-ups resolved and recorded.
+- The title-to-icon migration across 223 documents is still outstanding, and is still a content decision rather than a tool one.
+
 ## 2026-08-31 (evening) — per-document rollback, and four findings
 
 **Who:** Eric (Claude Code — "Code" thread)
