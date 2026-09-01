@@ -1,4 +1,30 @@
 # NO
+## 2026-08-31 (later) — three verification failures, fixed as two rules
+
+**Who:** Eric (Claude Code — "Code" thread)
+**Branch / PR:** `fix/readback-rules` (PR #15) and `fix/rename-readback-kramdown` (PR #16); deployed as `sha-acc24e6444e03719aa17635bc8b8e6a6ef5ae46d`
+
+PF-42, PF-49 and PF-54 all failed verification. Two patterns underneath them, fixed as rules rather than as three tickets.
+
+**Rule 1 — never verify a write against the SQL index, and never call an unconfirmed read-back a failure.**
+- New `src/utils/readback.ts`: poll a live read; distinguish "could not confirm" from "contradicted".
+- `rename_document` had inverted its own bug — it threw on every first rename of a document, quoting the old title, for renames that had already landed. A false failure on a completed write is worse than a silent success: the caller retries or rolls back finished work. It now returns `{ success: true, verified: false, note }` when it cannot confirm.
+- `batch_replace_tag` pre-counted and post-counted from the same lagging index, so the two agreed with each other and disagreed with reality (`{count: 1, remaining: 0}` for two blocks both successfully renamed). Counts are now labelled a floor, and `verified` requires the old and new tag reads to agree.
+
+**Rule 2 — `allowEmpty`.** The PF-50/52 empty-required check killed `set_icon(icon: "")`, the documented way to clear an icon. `BaseToolHandler.allowEmpty` lets a tool declare which required arguments accept `""`; swept every handler whose description documents empty-string behaviour (`set_icon.icon`, `set_database_cell.value`, `batch_replace_tag.new_tag`).
+
+**Learned**
+- **`/api/attr/getBlockAttrs` lags too.** The PF-49 fix read block attributes specifically to dodge the index, and it still failed — on a freshly created document the attribute read returned the old title across the full two-second polling window. `/api/block/getBlockKramdown` carries `title=` in the document block's IAL and had the new value immediately. That is the live read for a title.
+- **Overriding `validate()` without `super.validate()` silently drops the unknown-argument check.** Two handlers did; that is why `resolve_database_ids` answered a misspelled `item_ids` with a vague "provide at least one of" while `get_document_content` named the offender. Check for this whenever a handler adds its own validation.
+- **A workaround in one tool is a bug waiting in the next.** `new_tag` was made optional to dodge the empty-required collision; `set_icon` hit the identical collision days later and had no such escape. The second occurrence is the signal to fix the rule.
+- **Appending to a Findings note: do not retype the existing text.** These notes run to several thousand characters and setting a cell replaces the whole value. Read the old value programmatically, concatenate, write, then assert the old value is still a prefix of the stored one.
+
+**Did not work**
+- Driving `tools/call` through nested `ssh` + `docker run curl` with inline JSON — the quoting is unsurvivable. Write the payload to a file on the host, mount it, and `curl -d @file`. A probe script that opens its own MCP session per call is worth the extra round trip.
+
+**Left unfinished**
+- PF-42, PF-49, PF-54 are back to `Needs verification` with Chat. Nothing else is open.
+
 ## 2026-08-31 — PF-46 through PF-56: the silent-success family, closed out
 
 **Who:** Eric (Claude Code — "Code" thread)
