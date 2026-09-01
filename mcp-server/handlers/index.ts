@@ -21,6 +21,7 @@ export * from './notebook.js';
 
 // 快照相关
 export * from './snapshot.js';
+export * from './history.js';
 
 // 使用指南
 export * from './guide.js';
@@ -109,6 +110,11 @@ import {
   ListSnapshotsHandler,
   RollbackSnapshotHandler,
 } from './snapshot.js';
+import {
+  ListDocumentHistoryHandler,
+  GetDocumentHistoryContentHandler,
+  RollbackDocumentHandler,
+} from './history.js';
 import { GetUsageGuideHandler } from './guide.js';
 import { CreateDatabaseViewHandler, SetDatabaseFieldVisibilityHandler, SetDatabaseBlockViewHandler, SetIconHandler } from './view.js';
 import {
@@ -201,6 +207,11 @@ export function createAllHandlers() {
     new SetIconHandler(),
     new ListSnapshotsHandler(),
     new RollbackSnapshotHandler(),
+
+    // 文档历史（按文档回滚，不动工作区其余部分）
+    new ListDocumentHistoryHandler(),
+    new GetDocumentHistoryContentHandler(),
+    new RollbackDocumentHandler(),
 
     // 标签
     new ListAllTagsHandler(),

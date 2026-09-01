@@ -75,6 +75,9 @@ export class CreateDocumentHandler extends BaseToolHandler<
   { document_id: string; notebook_id: string; path: string; title: string }
 > {
   readonly name = 'create_document';
+  // 空 content 是"建一个空文档"，是个正当用法：占位文档、等着往里填的骨架。
+  // 之前被必填非空检查一刀切拦下，只能塞个占位字符绕过去（Chat 在 PF-60 之外顺手记的一条）。
+  readonly allowEmpty = ['content'];
   readonly annotations = { readOnlyHint: false, destructiveHint: false } as const;
   readonly description = 'Create a new note document in a SiYuan notebook with markdown content. The parent path must already exist — a missing parent is an error, not an invitation to invent one, because SiYuan would create every missing level silently and leave the real content in a shadow tree. Pass create_parents to make them deliberately. Prefer addressing by parent document ID over a path string where a tool offers it: a path is the whole failure surface, since one encoding difference matches nothing, while an ID cannot half-match.';
   readonly inputSchema: JSONSchema = {

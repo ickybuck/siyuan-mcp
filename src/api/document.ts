@@ -6,6 +6,7 @@ import type { SiyuanClient } from './client.js';
 import type { DocTreeNodeResponse } from '../types/index.js';
 import { extractTitle } from '../utils/format.js';
 import { readBackUntil, unverifiedNote } from '../utils/readback.js';
+import { rejectHtmlEntities } from '../utils/entities.js';
 
 export class SiyuanDocumentApi {
   constructor(private client: SiyuanClient) {}
@@ -26,12 +27,7 @@ export class SiyuanDocumentApi {
     // 路径里出现 HTML 实体几乎一定是调用方那侧转义过了。&amp; 与 & 是两个不同的名字，
     // 于是路径匹配不上任何既有文档——而下面那条内核行为会把匹配不上变成"凭空造一棵树"。
     // 一次这样的调用造出过三个空壳文档，真正的正文在影子树里躺了一天（PF-48）。
-    const entity = /&(amp|lt|gt|quot|#39|nbsp);/.exec(path);
-    if (entity) {
-      throw new Error(
-        `The path contains the HTML entity "${entity[0]}" — paths are not HTML and SiYuan does not decode entities, so this would create a document literally named with "${entity[0]}" instead of matching the one you meant. Pass raw text: "&", not "&amp;". Nothing was created.`
-      );
-    }
+    rejectHtmlEntities(path, 'path', 'Nothing was created.');
 
     // 父路径不存在时，内核会把缺失的每一层都悄悄建出来，然后报成功。一个编码差异就能
     // 长出一整棵看起来像模像样的影子目录。默认改为报错，要自动建父级得显式开口。
@@ -170,6 +166,10 @@ export class SiyuanDocumentApi {
     id: string,
     title: string
   ): Promise<{ verified: boolean; observed?: string; note?: string }> {
+    // create_document 拦 HTML 实体，rename_document 一点不拦，于是同一个坑隔着一次
+    // 调用照样能踩，还会把 &amp; 原样存成标题（PF-60）。两处现在走同一个检查。
+    rejectHtmlEntities(title, 'title', 'Nothing was renamed.');
+
     const response = await this.client.request('/api/filetree/renameDocByID', { id, title });
 
     if (response.code !== 0) {
@@ -269,19 +269,27 @@ export class SiyuanDocumentApi {
   async moveDocumentsToNotebookRoot(fromIds: string | string[], toNotebookId: string): Promise<void> {
     const fromIdArray = Array.isArray(fromIds) ? fromIds : [fromIds];
 
-    // 首先获取所有文档的路径
+    // moveDocs 要的是 .sy 文件路径（blocks.path，形如 /20260821193048-xxxxxxx.sy），
+    // 不是标题拼出来的 hpath。之前取的是 hpath，内核解析不到对应文件，于是回一句
+    // "block not found"——听起来像文档不存在，其实文档好好的，是路径给错了类型（PF-59）。
     const fromPaths: string[] = [];
+    const missing: string[] = [];
     for (const docId of fromIdArray) {
-      const stmt = `SELECT hpath FROM blocks WHERE id = '${docId}' AND type = 'd'`;
+      const stmt = `SELECT path FROM blocks WHERE id = '${docId.replace(/'/g, "''")}' AND type = 'd' LIMIT 1`;
       const response = await this.client.request<any[]>('/api/query/sql', { stmt });
-      const blocks = response.data || [];
-      if (blocks.length > 0) {
-        fromPaths.push(blocks[0].hpath);
+      const path = (response.data || [])[0]?.path;
+      if (path) {
+        fromPaths.push(path);
+      } else {
+        missing.push(docId);
       }
     }
 
-    if (fromPaths.length === 0) {
-      throw new Error('No valid documents found to move');
+    if (missing.length) {
+      throw new Error(
+        `No document found for ${missing.map((id) => `"${id}"`).join(', ')}. Nothing was moved. ` +
+          `Note the SQL index trails writes by a second or two, so a document created moments ago may not be findable yet.`
+      );
     }
 
     // 使用 moveDocs API 移动到笔记本根目录

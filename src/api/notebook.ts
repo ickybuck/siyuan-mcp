@@ -3,6 +3,7 @@
  */
 
 import type { SiyuanClient } from './client.js';
+import { rejectHtmlEntities } from '../utils/entities.js';
 import type { Notebook, NotebookConf, NotebookResponse } from '../types/index.js';
 
 export class SiyuanNotebookApi {
@@ -99,6 +100,9 @@ export class SiyuanNotebookApi {
    * @returns 笔记本 ID
    */
   async createNotebook(name: string): Promise<string> {
+    // 名字里的 HTML 实体不会被解码，存进去就是字面量，和文档标题同一类问题（PF-60）
+    rejectHtmlEntities(name, 'name', 'No notebook was created.');
+
     const response = await this.client.request<{ notebook: { id: string } }>(
       '/api/notebook/createNotebook',
       { name }
@@ -131,6 +135,8 @@ export class SiyuanNotebookApi {
    * @param name 新名称
    */
   async renameNotebook(notebookId: string, name: string): Promise<void> {
+    rejectHtmlEntities(name, 'name', 'Nothing was renamed.');
+
     const response = await this.client.request('/api/notebook/renameNotebook', {
       notebook: notebookId,
       name: name,

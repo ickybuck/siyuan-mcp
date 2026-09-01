@@ -14,6 +14,7 @@ import { SiyuanSnapshotApi } from './api/snapshot.js';
 import { SiyuanTagApi } from './api/tag.js';
 import { SiyuanAvApi } from './api/av.js';
 import { SiyuanIconApi } from './api/icon.js';
+import { SiyuanHistoryApi } from './api/history.js';
 import { DailyNoteUtils } from './utils/daily-note.js';
 import { SiyuanHelpers } from './utils/helpers.js';
 
@@ -50,6 +51,9 @@ export class SiyuanTools {
   /** 图标设置（文档 / 数据库视图 / 笔记本） */
   public readonly icon: SiyuanIconApi;
 
+  /** 文档历史（按文档回滚，区别于整个工作区的快照） */
+  public readonly history: SiyuanHistoryApi;
+
   /** 今日笔记工具 */
   public readonly dailyNote: DailyNoteUtils;
 
@@ -68,6 +72,7 @@ export class SiyuanTools {
     this.tag = new SiyuanTagApi(this.client);
     this.av = new SiyuanAvApi(this.client);
     this.icon = new SiyuanIconApi(this.client);
+    this.history = new SiyuanHistoryApi(this.client);
     this.dailyNote = new DailyNoteUtils(
       this.client,
       this.document,
