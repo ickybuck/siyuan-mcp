@@ -15,6 +15,19 @@ export abstract class BaseToolHandler<TArgs = any, TResult = any>
   abstract execute(args: TArgs, context: ExecutionContext): Promise<TResult>;
 
   /**
+   * 必填但允许传空串的参数名。
+   *
+   * 空串对多数参数意味着"忘了填"，但对另一些参数是一条确切的指令：清掉图标、删掉标签。
+   * 一刀切拒空串，等于把工具描述里写着的用法直接堵死——set_icon(icon: "") 曾因此完全
+   * 无法调用，而 batch_replace_tag 撞上同一件事时是把参数改成可选绕过去的，两处修法
+   * 还不一致（PF-54 第二轮）。
+   *
+   * 与其一处处打补丁，不如让工具自己声明：空串在这个参数上是不是一个有意义的值。
+   * 判断方法很简单——工具描述里如果写了"empty string 会怎样"，就把它列在这里。
+   */
+  readonly allowEmpty: readonly string[] = [];
+
+  /**
    * 默认的参数验证（子类可覆盖）
    *
    * 这里管的是"参数名写错了会怎样"。以前少传或写错一个必填参数不会被拦下，工具带着
@@ -42,7 +55,8 @@ export abstract class BaseToolHandler<TArgs = any, TResult = any>
 
     for (const field of this.inputSchema.required ?? []) {
       const value = args?.[field];
-      if (value === undefined || value === null || value === '') {
+      const emptyString = value === '' && !this.allowEmpty.includes(field);
+      if (value === undefined || value === null || emptyString) {
         throw new Error(
           `${this.name}: required argument "${field}" is ${args && field in args ? 'empty' : 'missing'}. ` +
             `Accepted arguments: ${known.join(', ')}.`

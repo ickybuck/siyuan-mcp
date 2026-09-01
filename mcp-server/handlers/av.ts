@@ -395,8 +395,16 @@ export class ResolveDatabaseIdsHandler extends BaseToolHandler<
   };
 
   validate(args: any): args is { av_id: string; item_ids?: string[]; block_ids?: string[] } {
+    // 覆写基类的 validate 会把"参数名写错了"那条检查一起丢掉：拼错 item_ids 换来的是
+    // 下面这句笼统的"至少给一个"，压根没提你写错了哪个名字，而同一件事在
+    // get_document_content 上会清清楚楚地报出来（PF-54 第二轮）。先跑基类，再加自己的。
+    super.validate(args);
+
     if (!args.item_ids?.length && !args.block_ids?.length) {
-      throw new Error('Provide at least one of: item_ids, block_ids');
+      throw new Error(
+        `${this.name}: provide at least one of: item_ids, block_ids. ` +
+          `Accepted arguments: ${Object.keys(this.inputSchema.properties ?? {}).join(', ')}.`
+      );
     }
     return true;
   }
@@ -790,6 +798,8 @@ export class SetDatabaseCellHandler extends BaseToolHandler<
   any
 > {
   readonly name = 'set_database_cell';
+  // 空串是"清空这个单元格"，工具描述里就是这么写的（PF-54 第二轮）
+  readonly allowEmpty = ['value'];
   readonly annotations = { readOnlyHint: false, destructiveHint: true } as const;
   readonly description = `Set the value of a single cell (one field of one row) in a SiYuan database. ${CELL_VALUE_DESCRIPTION} item_id must be the rendered row/card id from render_database (rows[].id / cards[].id) — it is NOT always the same as the bound block ID; passing the wrong ID stores an orphan value that never appears in the rendered cell.`;
   readonly inputSchema: JSONSchema = {

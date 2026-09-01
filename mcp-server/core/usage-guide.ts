@@ -27,6 +27,20 @@ Concretely: after a write, read the thing you wrote, not the page around it. A d
 can be satisfied by neighbouring content and hide a block-level loss — that exact mistake let one
 bug destroy content in this project's own records three times before anyone noticed.
 
+**But never read back through the SQL index, and never treat an unconfirmed read as a failure.**
+The index trails block writes by a second or two, sometimes much longer for document titles. A tool
+that writes and then checks the index answers with the index's staleness: \`rename_document\` threw
+on every first rename, quoting the old title, for renames that had already succeeded, and
+\`batch_replace_tag\` counted one of two freshly tagged blocks and then certified that count with a
+\`remaining: 0\` read from the same lagging source. A false failure on a completed write is worse
+than a silent success, because it invites a retry or a rollback of finished work.
+
+So: read block attributes or block content, which are live; poll rather than checking once; and
+when a read-back cannot confirm within a couple of seconds, say so instead of failing. Tools here
+now return \`verified: false\` with a note for that case. **\`verified: false\` does not mean the
+write failed** — do not retry or roll back on it. Read it again in a moment. Anything derived from
+the index, such as \`batch_replace_tag\`'s counts, is a floor and not a total.
+
 ## Structure
 
 Notebooks contain documents, which nest arbitrarily deep as sub-documents. Nesting is set by the

@@ -5,6 +5,7 @@
 import type { SiyuanClient } from './client.js';
 import type { DocTreeNodeResponse } from '../types/index.js';
 import { extractTitle } from '../utils/format.js';
+import { readBackUntil, unverifiedNote } from '../utils/readback.js';
 
 export class SiyuanDocumentApi {
   constructor(private client: SiyuanClient) {}
@@ -165,24 +166,39 @@ export class SiyuanDocumentApi {
    * @param id 文档 ID
    * @param title 新标题
    */
-  async renameDocumentById(id: string, title: string): Promise<void> {
+  async renameDocumentById(
+    id: string,
+    title: string
+  ): Promise<{ verified: boolean; observed?: string; note?: string }> {
     const response = await this.client.request('/api/filetree/renameDocByID', { id, title });
 
     if (response.code !== 0) {
       throw new Error(`Failed to rename document: ${response.msg}`);
     }
 
-    // blocks.content 里的标题在改名后可能好几分钟还是旧值，于是按文件名搜索和
-    // get_document_tree 都会说这次改名没生效。真正即时的是块属性，读它来确认——
-    // 否则调用方按"写完读回来"的规矩去查，反而查出一个错误结论（PF-49）。
-    const attrs = await this.client.request<Record<string, string>>('/api/attr/getBlockAttrs', { id });
-    const stored = attrs.data?.title ?? '';
     const wanted = title.trim();
-    if (stored !== wanted) {
-      throw new Error(
-        `SiYuan reported the rename of ${id} as successful, but its title reads ${JSON.stringify(stored)} rather than ${JSON.stringify(wanted)}.`
-      );
-    }
+
+    // 改名是立刻生效的，但读回来的每一条路都可能慢一拍：blocks.content 里的旧标题能留
+    // 好几分钟，块属性也不是每次都同步更新。第一版在这里直接抛错，结果每一次首次改名
+    // 都报"失败"并引用旧标题，而改名其实已经成功——写完立刻误报失败比原来的静默成功
+    // 更危险，调用方会去重试或回滚一件已经做完的事（PF-49）。
+    //
+    // 所以：轮询，读到就算确认；读不到只说没确认，不说失败。
+    const outcome = await readBackUntil(
+      async () => {
+        const attrs = await this.client.request<Record<string, string>>('/api/attr/getBlockAttrs', { id });
+        return attrs.data?.title ?? '';
+      },
+      (stored) => stored === wanted
+    );
+
+    if (outcome.verified) return { verified: true, observed: wanted };
+
+    return {
+      verified: false,
+      observed: outcome.observed,
+      note: unverifiedNote(`the title of ${id}`, outcome.observed),
+    };
   }
 
   /**
