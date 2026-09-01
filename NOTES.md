@@ -1,4 +1,62 @@
-# NO
+# NOTES.md — handoff log
+
+Newest entry first. Two developers work on this repo from separate Claude Code accounts and never
+at the same time, so neither can see the other's session history. **Anything learned or decided
+that is not in the diff has to be written down here**, or it is lost.
+
+Worth recording, in rough order of value to the next person:
+
+- What you tried that did **not** work, and why. Unreproducible from the diff, and the most
+  expensive thing to rediscover.
+- Decisions and the reason behind them, especially where you rejected the obvious approach.
+- What is unfinished, and where you stopped.
+- Anything about the live SiYuan instance or its kernel that surprised you.
+
+## Entry template
+
+```markdown
+## YYYY-MM-DD — <short title>
+
+**Who:** <name or account>
+**Branch / PR:** <branch name, PR link if opened>
+
+**Changed**
+- ...
+
+**Learned**
+- ...
+
+**Did not work**
+- ...
+
+**Left unfinished**
+- ...
+```
+
+---
+
+## 2026-09-01 — NOTES.md header repair, and the closed-row sweep written down
+
+**Who:** Eric (Claude Code — "Code" thread)
+**Branch / PR:** `docs/closed-row-sweep`
+
+**Changed**
+- CLAUDE.md working agreement gained rule 6: after a verification round, search the findings notes rather than trusting the status column, with the marker list and the reason.
+- `scripts/scan-findings.mjs` — the sweep as a runnable script. Takes the database ID as an argument and the credentials from the environment, so no workspace specifics are committed.
+- Repaired this file: four entries had been inserted above the title, splitting `# NOTES.md — handoff log` into `# NO` … `TES.md — handoff log`.
+
+**Did not work**
+- **The CRLF failure mode again, and this time it corrupted a file rather than doing nothing.** The insertion script located the entry point with `s.indexOf('
+---
+')`. Git had converted this file to CRLF, so the marker never matched, `indexOf` returned `-1`, and `slice(0, -1 + 5)` silently cut the header at character 4 and inserted there. It looked like it had worked: the entry was present and in the right order, so three sessions passed before anyone read line 1.
+- Two lessons, and the second is the one that matters. Match `?
+`, never a bare `
+`, in any script that edits a file in this repo. And when a script computes an insertion offset, assert the marker was actually found — `indexOf` returning `-1` is a valid number that produces a plausible-looking result.
+- Verified the repair by normalising both versions and comparing content order-insensitively: identical, 311 lines before and after. Worth doing rather than eyeballing a 74-line diff.
+
+**Left unfinished**
+- PF-65 is with Chat for verification. Nothing else is open.
+
 ## 2026-08-31 (late) — PF-65, and two follow-ups that were hiding inside closed rows
 
 **Who:** Eric (Claude Code — "Code" thread)
@@ -98,42 +156,6 @@ PF-42, PF-49 and PF-54 all failed verification. Two patterns underneath them, fi
 - The integration suite needs a live `SIYUAN_TOKEN` and was not run; it type-checks, and `create_document`'s assertions were updated for the new return shape. Someone with a token should run it once.
 - PF-29 and PF-42 are still `Needs verification` from earlier batches, owned by Chat.
 - PF-55 is deliberately unused: Chat takes odd numbers, Code takes even.
-TES.md — handoff log
-
-Newest entry first. Two developers work on this repo from separate Claude Code accounts and never
-at the same time, so neither can see the other's session history. **Anything learned or decided
-that is not in the diff has to be written down here**, or it is lost.
-
-Worth recording, in rough order of value to the next person:
-
-- What you tried that did **not** work, and why. Unreproducible from the diff, and the most
-  expensive thing to rediscover.
-- Decisions and the reason behind them, especially where you rejected the obvious approach.
-- What is unfinished, and where you stopped.
-- Anything about the live SiYuan instance or its kernel that surprised you.
-
-## Entry template
-
-```markdown
-## YYYY-MM-DD — <short title>
-
-**Who:** <name or account>
-**Branch / PR:** <branch name, PR link if opened>
-
-**Changed**
-- ...
-
-**Learned**
-- ...
-
-**Did not work**
-- ...
-
-**Left unfinished**
-- ...
-```
-
----
 
 ## 2026-08-31 — PF-45 closed from the server end; PF-50 filed; deployment verified
 
