@@ -3,6 +3,7 @@
  */
 
 import type { SiyuanClient } from './client.js';
+import { rejectHtmlEntities } from '../utils/entities.js';
 
 /** 生成符合思源节点 ID 规则的 ID：14 位时间戳 + '-' + 7 位随机小写字母数字 */
 function newNodeId(): string {
@@ -346,6 +347,9 @@ export class SiyuanAvApi {
    * 不需要另外刷新。名字会去掉首尾空白、换行替换为空格，超过 512 个字符会被截断。
    */
   async setAttributeViewName(avID: string, name: string): Promise<void> {
+    // 同 PF-60：实体不会被解码，存进去就是字面量的 &amp;
+    rejectHtmlEntities(name, 'name', 'The database was not renamed.');
+
     const wanted = name.trim().replace(/\n/g, ' ');
 
     await this.performOperation({

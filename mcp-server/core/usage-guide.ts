@@ -379,6 +379,25 @@ This guide lags reality — anything wrong or missing belongs in the Project Fin
 - \`remove_database_rows\` deletes detached rows outright but only unbinds rows backed by real
   blocks; the underlying documents survive.
 - \`remove_unused_databases\` is irreversible and now requires explicit IDs.
-- \`create_snapshot\` before anything bulk. It is the only cheap undo.
+- \`create_snapshot\` before anything bulk. It is the workspace-wide undo.
+
+## Undoing one document without undoing everything
+
+\`rollback_to_snapshot\` reverts the whole workspace, so using it to repair one note drags
+everything else back with it. For a single document, SiYuan keeps its own version history:
+
+1. \`list_document_history\` — the retained versions of that document, newest first, each with a
+   \`history_path\` and the \`op\` that produced it (update, delete, format, clean).
+2. \`get_document_history_content\` — read the version before restoring it. Do not skip this. A
+   rollback overwrites the current content, and this step is the difference between restoring a
+   version you have read and one you have assumed.
+3. \`rollback_document\` — restore it. The response carries \`previous_content\`, the document
+   exactly as it stood a moment before, and **that is the only copy of it this tool guarantees**.
+   Keep it until you have confirmed the right version came back.
+
+History is pruned on SiYuan's retention setting, so this covers recent loss — an hour ago, this
+morning — not last month. It is not a backup. If the current content matters and you are not
+certain the version you picked is the right one, take a snapshot as well: the two are
+complementary, and only the snapshot survives the retention window.
 `;
 }
