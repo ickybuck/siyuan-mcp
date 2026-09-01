@@ -395,8 +395,14 @@ everything else back with it. For a single document, SiYuan keeps its own versio
    exactly as it stood a moment before, and **that is the only copy of it this tool guarantees**.
    Keep it until you have confirmed the right version came back.
 
-History is pruned on SiYuan's retention setting, so this covers recent loss — an hour ago, this
-morning — not last month. It is not a backup. If the current content matters and you are not
+**History is generated on a timer, not on every write.** On a default instance that is every ten
+minutes, so a change made and undone inside one interval was never captured: the version you find
+holds the damage, not what preceded it. Verified here — a document written and overwritten in the
+same interval had exactly one version, and it was the overwritten one. This is the case where only
+a snapshot helps, and the reason to take one before a bulk write rather than after noticing.
+
+History is also pruned on SiYuan's retention setting, so this covers recent loss — an hour ago,
+this morning — not last month. It is not a backup. If the current content matters and you are not
 certain the version you picked is the right one, take a snapshot as well: the two are
 complementary, and only the snapshot survives the retention window.
 `;
