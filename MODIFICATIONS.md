@@ -10,6 +10,13 @@ place stays authoritative.
 
 Fork point: upstream commit `4a8f43a` (`@porkll/siyuan-mcp@0.1.1`).
 
+## Published identity
+
+This fork is published to npm as [`siyuan-mcp-blocks`](https://www.npmjs.com/package/siyuan-mcp-blocks),
+not under upstream's `@porkll` scope. The name change is deliberate: publishing under upstream's
+scope would imply an endorsement that does not exist, which section 6 of the Apache License does
+not permit.
+
 ## What changed, in substance
 
 Upstream exposed 16 tools, all document-granular: to edit one paragraph of a large note you

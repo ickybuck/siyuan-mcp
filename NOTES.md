@@ -35,6 +35,27 @@ Worth recording, in rough order of value to the next person:
 
 ---
 
+## 2026-09-02 (later) — published to npm as siyuan-mcp-blocks
+
+**Who:** Eric (Claude Code — "Code" thread)
+**Branch / PR:** PRs #26, #27; published `siyuan-mcp-blocks@0.2.0`
+
+**Changed**
+- Renamed again, `siyuan-mcp-extended` → `siyuan-mcp-blocks`, before publishing (PR #26).
+- `clean` script made cross-platform (PR #27).
+- Published: https://www.npmjs.com/package/siyuan-mcp-blocks — Apache-2.0, maintainer ickybuck.
+
+**Learned**
+- **Free on npm is not free where people look.** `siyuan-mcp-extended` was unclaimed on the registry, but `jjdunlop/siyuan-mcp-extended` already existed on GitHub. Check both before settling a name.
+- **`prepublishOnly` ran `rm -rf dist`,** and npm runs scripts through `cmd.exe` on Windows. The publish died in the pre-publish hook without contacting the registry, and the failure looked like an auth problem for two rounds. Use `node -e "require('fs').rmSync(...)"` for anything that has to run on both platforms.
+- **npm no longer offers TOTP enrolment** — the 2FA page is passkeys, recovery codes, and a "require 2FA for write actions" toggle. A passkey cannot answer `--otp`, so publishing from a CLI means either a recovery code, a bypass token, or turning that toggle off for the length of one publish. The toggle is the smallest and most reversible of the three; it was turned back on immediately after.
+- **The npm README is frozen per version.** Editing it in git later does not change what a published version shows, so the notice ordering matters at publish time and not before the next release.
+- Publishing needs a browser auth round trip, so it cannot be driven from this session at all — the CLI prints a one-time URL and waits. Credentials are the user's to handle either way.
+
+**Left unfinished**
+- PF-67 and PF-69 are with Chat to verify against the live package page.
+- No release process exists: publishing was manual, and nothing ties a git tag to an npm version. Worth a thought before 0.3.0.
+
 ## 2026-09-02 — Apache-2.0 compliance, and the package identity
 
 **Who:** Eric (Claude Code — "Code" thread)
