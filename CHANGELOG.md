@@ -8,7 +8,7 @@ kept as they were written. Entries from 0.2.0 up are this fork's.
 ## [0.2.0] - 2026-09-02
 
 ### Changed
-- Package renamed to `siyuan-mcp-extended`. Publishing under upstream's `@porkll` scope would imply
+- Package renamed to `siyuan-mcp-blocks`. Publishing under upstream's `@porkll` scope would imply
   an endorsement that does not exist, which Apache-2.0's trademark clause does not permit.
 - `author`, `repository`, `bugs` and `homepage` now describe this fork. `license` stays
   `Apache-2.0`; upstream's author is credited in `contributors` and in `NOTICE`.

@@ -53,10 +53,10 @@ npm install -g .
 
 ```bash
 # 全局安装
-npm install -g siyuan-mcp-extended
+npm install -g siyuan-mcp-blocks
 
 # 或使用 npx（无需安装）
-npx siyuan-mcp-extended
+npx siyuan-mcp-blocks
 ```
 
 全局安装后，`siyuan-mcp` 命令将全局可用。
@@ -85,7 +85,7 @@ npx siyuan-mcp-extended
       "command": "npx",
       "args": [
         "-y",
-        "siyuan-mcp-extended",
+        "siyuan-mcp-blocks",
         "stdio",
         "--token",
         "你的_API_TOKEN",
@@ -112,7 +112,7 @@ npx siyuan-mcp-extended
       "command": "npx",
       "args": [
         "-y",
-        "siyuan-mcp-extended",
+        "siyuan-mcp-blocks",
         "stdio",
         "--token",
         "你的_API_TOKEN",
@@ -241,7 +241,7 @@ npx siyuan-mcp-extended
 虽然主要设计为 MCP 服务器，你也可以在自己的项目中将此包作为 TypeScript 库使用：
 
 ```typescript
-import { createSiyuanTools } from 'siyuan-mcp-extended';
+import { createSiyuanTools } from 'siyuan-mcp-blocks';
 
 // 创建实例
 const siyuan = createSiyuanTools('http://127.0.0.1:6806', 'your-token');
@@ -289,7 +289,7 @@ import type {
   NotebookConf,
   DocTreeNode,
   SearchOptions
-} from 'siyuan-mcp-extended';
+} from 'siyuan-mcp-blocks';
 ```
 
 ## 💻 开发

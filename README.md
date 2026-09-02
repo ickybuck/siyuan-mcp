@@ -92,10 +92,10 @@ npm install -g .
 
 ```bash
 # Install globally
-npm install -g siyuan-mcp-extended
+npm install -g siyuan-mcp-blocks
 
 # Or use npx (no installation needed)
-npx siyuan-mcp-extended
+npx siyuan-mcp-blocks
 ```
 
 After global installation, the `siyuan-mcp` command will be available globally.
@@ -124,7 +124,7 @@ Edit your MCP configuration file at `~/.cursor/mcp.json`:
       "command": "npx",
       "args": [
         "-y",
-        "siyuan-mcp-extended",
+        "siyuan-mcp-blocks",
         "stdio",
         "--token",
         "YOUR_API_TOKEN_HERE",
@@ -151,7 +151,7 @@ Edit the configuration file at:
       "command": "npx",
       "args": [
         "-y",
-        "siyuan-mcp-extended",
+        "siyuan-mcp-blocks",
         "stdio",
         "--token",
         "YOUR_API_TOKEN_HERE",
@@ -316,7 +316,7 @@ Give each row an `item_id`. The kernel adopts it as the row ID, and re-sending a
 already exists **updates** rather than duplicates — so an interrupted import can just be re-run.
 
 ```js
-import { deriveItemId } from 'siyuan-mcp-extended';
+import { deriveItemId } from 'siyuan-mcp-blocks';
 const item_id = deriveItemId(avID, sourceRecordKey); // stable, correct format
 ```
 
@@ -455,7 +455,7 @@ Batch replace all occurrences of a tag across all documents.
 While primarily designed as an MCP server, you can also use this package as a TypeScript library in your own projects:
 
 ```typescript
-import { createSiyuanTools } from 'siyuan-mcp-extended';
+import { createSiyuanTools } from 'siyuan-mcp-blocks';
 
 // Create an instance
 const siyuan = createSiyuanTools('http://127.0.0.1:6806', 'your-token');
@@ -503,7 +503,7 @@ import type {
   NotebookConf,
   DocTreeNode,
   SearchOptions
-} from 'siyuan-mcp-extended';
+} from 'siyuan-mcp-blocks';
 ```
 
 ## 🤝 Getting started for a new collaborator
