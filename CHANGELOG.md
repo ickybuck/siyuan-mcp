@@ -1,6 +1,27 @@
 # Changelog
 
+Entries from 0.1.6 down are upstream's ([porkll/siyuan-mcp](https://github.com/porkll/siyuan-mcp)),
+kept as they were written. Entries from 0.2.0 up are this fork's.
+
 ## [Unreleased]
+
+## [0.2.0] - 2026-09-02
+
+### Changed
+- Package renamed to `siyuan-mcp-extended`. Publishing under upstream's `@porkll` scope would imply
+  an endorsement that does not exist, which Apache-2.0's trademark clause does not permit.
+- `author`, `repository`, `bugs` and `homepage` now describe this fork. `license` stays
+  `Apache-2.0`; upstream's author is credited in `contributors` and in `NOTICE`.
+
+### Added
+- `NOTICE` — attribution to upstream and the statement of modification.
+- `MODIFICATIONS.md` — every inherited file that was changed, and everything added, as section 4(b)
+  of the Apache License requires.
+- README and README_zh: upstream attribution and licence provenance, and the AI-development notice
+  extended to cover this fork's own code rather than only the code it inherits.
+
+### Fixed
+- The README's tool counts were stale (58); the server registers 76.
 
 ## [0.1.6] - 2025-10-27
 

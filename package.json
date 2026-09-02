@@ -1,7 +1,7 @@
 {
-  "name": "@porkll/siyuan-mcp",
-  "version": "0.1.6",
-  "description": "SiYuan Note MCP Server - Model Context Protocol server for SiYuan Note",
+  "name": "siyuan-mcp-extended",
+  "version": "0.2.0",
+  "description": "MCP server for SiYuan Note with block-level editing and full database (attribute view) support — an expanded fork of @porkll/siyuan-mcp",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "type": "module",
@@ -32,11 +32,11 @@
     "knowledge-management",
     "typescript"
   ],
-  "author": "lei",
+  "author": "ickybuck",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/porkll/siyuan-mcp.git"
+    "url": "git+https://github.com/ickybuck/siyuan-mcp.git"
   },
   "engines": {
     "node": ">=18.0.0"
@@ -60,6 +60,15 @@
     "dist",
     "README.md",
     "README_zh.md",
-    "LICENSE"
-  ]
+    "LICENSE",
+    "NOTICE",
+    "MODIFICATIONS.md"
+  ],
+  "contributors": [
+    "lei (upstream: porkll/siyuan-mcp)"
+  ],
+  "bugs": {
+    "url": "https://github.com/ickybuck/siyuan-mcp/issues"
+  },
+  "homepage": "https://github.com/ickybuck/siyuan-mcp#readme"
 }
