@@ -8,12 +8,14 @@ A Model Context Protocol (MCP) server for SiYuan Note, enabling AI assistants li
 
 **English:**
 
-The code in this project is primarily developed with AI assistance. While functional testing has been performed, comprehensive code review has not been completed. Before using this project, please be aware of and accept the following:
+The code in this project is primarily developed with AI assistance. While functional testing has been performed, comprehensive code review has not been completed. **This applies to the fork as much as to the code it inherits:** the block, database, history and verification layers added here were written by Claude Code and have not had a comprehensive human review either. Before using this project, please be aware of and accept the following:
 
 - The code may contain undiscovered issues or potential risks
 - Conduct necessary code reviews and testing before use
 - Users assume all risks and responsibilities arising from the use of this project
 - Thorough validation is recommended before production use
+
+Every added endpoint has been exercised against a live SiYuan 3.8.1 kernel, including negative cases, and every write path reads its result back rather than trusting a success response. That is a statement about what has been *tested*; it is not a substitute for the caveat above.
 
 **Use with caution and at your own risk.**
 
@@ -21,7 +23,7 @@ The code in this project is primarily developed with AI assistance. While functi
 
 **中文：**
 
-本项目代码主要由 AI 辅助开发，仅进行了功能性测试，未对所有代码进行完整审查。使用本项目前，请充分了解并接受以下内容：
+本项目代码主要由 AI 辅助开发，仅进行了功能性测试，未对所有代码进行完整审查。**这一点对本 fork 自身的代码同样成立**：这里新增的块级编辑、数据库、历史回滚与写后校验各层由 Claude Code 编写，同样没有经过完整的人工审查。使用本项目前，请充分了解并接受以下内容：
 
 - 代码可能存在未发现的问题或潜在风险
 - 请在使用前进行必要的代码审查和测试
@@ -33,7 +35,7 @@ The code in this project is primarily developed with AI assistance. While functi
 ## 🍴 About This Fork
 
 This is a fork of [porkll/siyuan-mcp](https://github.com/porkll/siyuan-mcp) that expands the tool
-surface from 16 to 58 tools. Upstream exposed only document-granular operations, which meant editing
+surface from 16 to 76 tools. Upstream exposed only document-granular operations, which meant editing
 one paragraph of a large note required rewriting the whole document. This fork adds **block-level
 editing** and a complete **database (attribute view)** layer.
 
@@ -47,7 +49,7 @@ The practical difference: a 148-byte `update_block` call can edit a single parag
 | Block operations | 0 tools | 11 tools |
 | Databases (attribute views) | 0 tools | 27 tools |
 | Filetree | partial | +4 tools |
-| **Total** | **16** | **58** |
+| **Total** | **16** | **76** |
 
 All added endpoints were verified against a live SiYuan 3.8.1 kernel, including negative cases.
 See [Notes & Gotchas](#-notes--gotchas) for behaviours that are easy to get wrong.
@@ -55,7 +57,7 @@ See [Notes & Gotchas](#-notes--gotchas) for behaviours that are easy to get wron
 ## ✨ Features
 
 - 🚀 Full MCP (Model Context Protocol) implementation
-- 📝 58 tools covering documents, blocks, databases, notebooks, tags, and snapshots
+- 📝 76 tools covering documents, blocks, databases, notebooks, tags, history and snapshots
 - 🧱 **Block-level editing** — edit, insert, move, fold, and delete individual blocks
 - 🗃️ **Database support** — create databases, add fields and rows, set cell values, filter, sort, group, switch layouts
 - 🔍 Unified search (content, filename, tag, and combinations)
@@ -73,7 +75,7 @@ See [Notes & Gotchas](#-notes--gotchas) for behaviours that are easy to get wron
 
 ```bash
 # Clone the repository
-git clone https://github.com/porkll/siyuan-mcp.git
+git clone https://github.com/ickybuck/siyuan-mcp.git
 cd siyuan-mcp
 
 # Install dependencies
@@ -90,10 +92,10 @@ npm install -g .
 
 ```bash
 # Install globally
-npm install -g @porkll/siyuan-mcp
+npm install -g siyuan-mcp-extended
 
 # Or use npx (no installation needed)
-npx @porkll/siyuan-mcp
+npx siyuan-mcp-extended
 ```
 
 After global installation, the `siyuan-mcp` command will be available globally.
@@ -122,7 +124,7 @@ Edit your MCP configuration file at `~/.cursor/mcp.json`:
       "command": "npx",
       "args": [
         "-y",
-        "@porkll/siyuan-mcp",
+        "siyuan-mcp-extended",
         "stdio",
         "--token",
         "YOUR_API_TOKEN_HERE",
@@ -149,7 +151,7 @@ Edit the configuration file at:
       "command": "npx",
       "args": [
         "-y",
-        "@porkll/siyuan-mcp",
+        "siyuan-mcp-extended",
         "stdio",
         "--token",
         "YOUR_API_TOKEN_HERE",
@@ -173,7 +175,7 @@ After configuration, restart your MCP client (Cursor/Claude Desktop) and try:
 
 ## 🛠️ Available MCP Tools
 
-Once configured, you can interact with SiYuan through natural language. The server provides 58 tools:
+Once configured, you can interact with SiYuan through natural language. The server provides 76 tools:
 
 ### 🔍 Search
 - **unified_search** - Unified search tool: search by content, filename, tag, or any combination
@@ -314,7 +316,7 @@ Give each row an `item_id`. The kernel adopts it as the row ID, and re-sending a
 already exists **updates** rather than duplicates — so an interrupted import can just be re-run.
 
 ```js
-import { deriveItemId } from '@porkll/siyuan-mcp';
+import { deriveItemId } from 'siyuan-mcp-extended';
 const item_id = deriveItemId(avID, sourceRecordKey); // stable, correct format
 ```
 
@@ -453,7 +455,7 @@ Batch replace all occurrences of a tag across all documents.
 While primarily designed as an MCP server, you can also use this package as a TypeScript library in your own projects:
 
 ```typescript
-import { createSiyuanTools } from '@porkll/siyuan-mcp';
+import { createSiyuanTools } from 'siyuan-mcp-extended';
 
 // Create an instance
 const siyuan = createSiyuanTools('http://127.0.0.1:6806', 'your-token');
@@ -501,7 +503,7 @@ import type {
   NotebookConf,
   DocTreeNode,
   SearchOptions
-} from '@porkll/siyuan-mcp';
+} from 'siyuan-mcp-extended';
 ```
 
 ## 🤝 Getting started for a new collaborator
@@ -529,7 +531,7 @@ and publishes a container image.
 
 ```bash
 # Clone and install
-git clone https://github.com/porkll/siyuan-mcp.git
+git clone https://github.com/ickybuck/siyuan-mcp.git
 cd siyuan-mcp
 npm install
 
@@ -620,14 +622,25 @@ Contributions are welcome! Please feel free to submit issues and pull requests.
 
 ## 📄 License
 
-Apache-2.0
+Apache License 2.0 — the same licence as the project this is forked from, and it stays that way.
+See [LICENSE](./LICENSE) for the full text.
+
+This is a fork of [porkll/siyuan-mcp](https://github.com/porkll/siyuan-mcp), Copyright 2024 lei.
+[NOTICE](./NOTICE) carries the attribution, and [MODIFICATIONS.md](./MODIFICATIONS.md) records
+every inherited file that was changed along with everything added, as section 4(b) of the licence
+requires. This project is not affiliated with, endorsed by, or sponsored by the upstream project
+or its author, nor by SiYuan Note.
 
 ## 🔗 Related Projects
 
+- [porkll/siyuan-mcp](https://github.com/porkll/siyuan-mcp) - The upstream project this forked from
 - [SiYuan Note](https://github.com/siyuan-note/siyuan) - Official SiYuan Note repository
 - [Model Context Protocol](https://modelcontextprotocol.io/) - MCP documentation
 - [MCP TypeScript SDK](https://github.com/modelcontextprotocol/typescript-sdk) - Official MCP SDK
 
 ## 🙏 Acknowledgments
 
-This project is primarily developed with AI assistance and built on top of the excellent [SiYuan Note](https://github.com/siyuan-note/siyuan) project.
+Built on [porkll/siyuan-mcp](https://github.com/porkll/siyuan-mcp) by lei, which supplied the MCP
+scaffolding, the document tools and the client this expands — and on the excellent
+[SiYuan Note](https://github.com/siyuan-note/siyuan) project, whose kernel API all of this talks to.
+Developed primarily with AI assistance; see the notice at the top of this file.

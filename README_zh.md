@@ -36,7 +36,7 @@
 
 ```bash
 # 克隆仓库
-git clone https://github.com/porkll/siyuan-mcp.git
+git clone https://github.com/ickybuck/siyuan-mcp.git
 cd siyuan-mcp
 
 # 安装依赖
@@ -53,10 +53,10 @@ npm install -g .
 
 ```bash
 # 全局安装
-npm install -g @porkll/siyuan-mcp
+npm install -g siyuan-mcp-extended
 
 # 或使用 npx（无需安装）
-npx @porkll/siyuan-mcp
+npx siyuan-mcp-extended
 ```
 
 全局安装后，`siyuan-mcp` 命令将全局可用。
@@ -85,7 +85,7 @@ npx @porkll/siyuan-mcp
       "command": "npx",
       "args": [
         "-y",
-        "@porkll/siyuan-mcp",
+        "siyuan-mcp-extended",
         "stdio",
         "--token",
         "你的_API_TOKEN",
@@ -112,7 +112,7 @@ npx @porkll/siyuan-mcp
       "command": "npx",
       "args": [
         "-y",
-        "@porkll/siyuan-mcp",
+        "siyuan-mcp-extended",
         "stdio",
         "--token",
         "你的_API_TOKEN",
@@ -241,7 +241,7 @@ npx @porkll/siyuan-mcp
 虽然主要设计为 MCP 服务器，你也可以在自己的项目中将此包作为 TypeScript 库使用：
 
 ```typescript
-import { createSiyuanTools } from '@porkll/siyuan-mcp';
+import { createSiyuanTools } from 'siyuan-mcp-extended';
 
 // 创建实例
 const siyuan = createSiyuanTools('http://127.0.0.1:6806', 'your-token');
@@ -289,7 +289,7 @@ import type {
   NotebookConf,
   DocTreeNode,
   SearchOptions
-} from '@porkll/siyuan-mcp';
+} from 'siyuan-mcp-extended';
 ```
 
 ## 💻 开发
@@ -389,14 +389,22 @@ console.log(notebooks.map(nb => `${nb.name}: ${nb.id}`));
 
 ## 📄 许可证
 
-Apache-2.0
+Apache License 2.0——与上游项目相同，并且不会更改。完整条款见 [LICENSE](./LICENSE)。
+
+本项目是 [porkll/siyuan-mcp](https://github.com/porkll/siyuan-mcp)（Copyright 2024 lei）的 fork。
+署名见 [NOTICE](./NOTICE)；哪些继承来的文件被改过、又新增了什么，记录在
+[MODIFICATIONS.md](./MODIFICATIONS.md)——这是许可证第 4(b) 条的要求。本项目与上游项目及其作者、
+以及思源笔记均无隶属关系，也未获得其背书。
 
 ## 🔗 相关项目
 
+- [porkll/siyuan-mcp](https://github.com/porkll/siyuan-mcp) - 本项目 fork 自的上游项目
 - [思源笔记](https://github.com/siyuan-note/siyuan) - 思源笔记官方仓库
 - [Model Context Protocol](https://modelcontextprotocol.io/) - MCP 文档
 - [MCP TypeScript SDK](https://github.com/modelcontextprotocol/typescript-sdk) - 官方 MCP SDK
 
 ## 🙏 致谢
 
-本项目主要由 AI 辅助开发，基于优秀的[思源笔记](https://github.com/siyuan-note/siyuan)项目构建。
+基于 lei 的 [porkll/siyuan-mcp](https://github.com/porkll/siyuan-mcp) 构建——MCP 框架、文档类
+工具和客户端都来自那里；也基于优秀的[思源笔记](https://github.com/siyuan-note/siyuan)项目，本
+项目的一切操作最终都走它的内核 API。本项目主要由 AI 辅助开发，详见文首的声明。
