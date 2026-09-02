@@ -22,4 +22,4 @@ clean:
 	rm -rf dist dist-test node_modules/.cache
 
 publish:
-	npm publish --access public @porkll/siyuan-mcp
+	npm publish --access public
