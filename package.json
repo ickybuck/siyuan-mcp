@@ -1,5 +1,5 @@
 {
-  "name": "siyuan-mcp-extended",
+  "name": "siyuan-mcp-blocks",
   "version": "0.2.0",
   "description": "MCP server for SiYuan Note with block-level editing and full database (attribute view) support — an expanded fork of @porkll/siyuan-mcp",
   "main": "dist/index.js",
