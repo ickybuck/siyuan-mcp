@@ -35,6 +35,29 @@ Worth recording, in rough order of value to the next person:
 
 ---
 
+## 2026-09-02 — Apache-2.0 compliance, and the package identity
+
+**Who:** Eric (Claude Code — "Code" thread)
+**Branch / PR:** `docs/apache-compliance` (PR #24)
+
+**Changed**
+- `NOTICE` and `MODIFICATIONS.md` added — attribution to upstream and the section 4(b) statement of modification, listing all 22 inherited files that were changed and everything added. Repository level rather than per-file headers, by Eric's call.
+- Package renamed `@porkll/siyuan-mcp` → `siyuan-mcp-extended`, version 0.2.0; `author`, `repository`, `bugs`, `homepage` now describe this fork. `license` stays Apache-2.0.
+- README and README_zh: licence provenance, upstream in Acknowledgments and Related Projects, AI-development notice extended to this fork's own code, counts corrected 58 → 76, install and import examples repointed here.
+- GitHub description and six topics set (they were empty).
+
+**Learned**
+- **Most of the compliance work was already done and nobody had checked.** LICENSE was intact and unmodified — verifiable from git history, since the last commit touching it is upstream's own — `package.json` already said Apache-2.0, and the README already linked upstream. The real gaps were the 4(b) notices and the package identity. Worth establishing the facts before scoping compliance work; the findings were written from upstream's public state because Chat cannot see this repo.
+- **Upstream ships no NOTICE file**, so the "reproduce the NOTICE" obligation was moot. Confirmed by listing upstream's repo contents rather than assuming.
+- **Upstream's README undercounts upstream.** It says "15 essential tools"; counting registered names in its handler source gives 16. The hub was right.
+- **The package was the actual risk, not the licence.** `@porkll/siyuan-mcp` with `author: "lei"` would have implied endorsement if published, which Apache-2.0's trademark clause does not permit — and the Makefile's `publish` target passed that name literally to `npm publish`.
+- The 36 deletions since the fork point are all committed build output. Recorded in MODIFICATIONS.md so nobody re-derives it.
+
+**Left unfinished**
+- PF-67 and PF-69 are with Chat for verification; PF-71 is closed. PF-65 was already with Chat.
+- If this is ever published somewhere that reads 4(b) strictly, per-file modification headers on the 22 inherited files are a mechanical follow-up.
+- npm publishing is not set up: no account is configured here, and `npm publish` has never been run for this name.
+
 ## 2026-09-01 — NOTES.md header repair, and the closed-row sweep written down
 
 **Who:** Eric (Claude Code — "Code" thread)
