@@ -17,10 +17,25 @@
 
 ---
 
+## 🍴 关于本 fork
+
+本项目是 [porkll/siyuan-mcp](https://github.com/porkll/siyuan-mcp) 的 fork，把工具数量从 16 个扩到 76 个。
+上游只提供文档级操作——想改大文档里的一个段落，就得把整篇重写一遍。本 fork 增加了**块级编辑**和完整的
+**数据库（属性视图）**层，以及按文档的历史回滚和一整套写后读回校验。
+
+实际差别：一次 148 字节的 `update_block` 就能改掉一万字文档里的某一段，而不必把整篇发回去。
+
+| 领域 | 上游 | 本 fork |
+| --- | --- | --- |
+| 块操作 | 0 个工具 | 11 个工具 |
+| 数据库（属性视图） | 0 个工具 | 27 个工具 |
+| 文件树 | 部分 | +4 个工具 |
+| **合计** | **16** | **76** |
+
 ## ✨ 特性
 
 - 🚀 完整的 MCP（模型上下文协议）实现
-- 📝 15 个核心工具，全面支持思源笔记操作
+- 📝 76 个工具，覆盖文档、块、数据库、笔记本、标签、历史与快照
 - 🔍 统一搜索（内容、文件名、标签及组合搜索）
 - 📁 文档管理（创建、读取、更新、移动、树形结构）
 - 📅 今日笔记支持，自动创建
@@ -59,7 +74,7 @@ npm install -g siyuan-mcp-blocks
 npx siyuan-mcp-blocks
 ```
 
-全局安装后，`siyuan-mcp` 命令将全局可用。
+全局安装后，`siyuan-mcp-blocks` 命令将全局可用。
 
 ## 🔧 配置
 
@@ -81,7 +96,7 @@ npx siyuan-mcp-blocks
 ```json
 {
   "mcpServers": {
-    "siyuan-mcp": {
+    "siyuan-mcp-blocks": {
       "command": "npx",
       "args": [
         "-y",
@@ -97,7 +112,7 @@ npx siyuan-mcp-blocks
 }
 ```
 
-**注意**：如果你全局安装了包，可以使用 `"command": "siyuan-mcp"` 替代 `"command": "npx"`。
+**注意**：如果你全局安装了包，可以使用 `"command": "siyuan-mcp-blocks"` 替代 `"command": "npx"`。
 
 ### 在 Claude Desktop 中配置
 
@@ -108,7 +123,7 @@ npx siyuan-mcp-blocks
 ```json
 {
   "mcpServers": {
-    "siyuan-mcp": {
+    "siyuan-mcp-blocks": {
       "command": "npx",
       "args": [
         "-y",
@@ -124,7 +139,7 @@ npx siyuan-mcp-blocks
 }
 ```
 
-**注意**：如果你全局安装了包，可以使用 `"command": "siyuan-mcp"` 替代 `"command": "npx"`。
+**注意**：如果你全局安装了包，可以使用 `"command": "siyuan-mcp-blocks"` 替代 `"command": "npx"`。
 
 ### 验证安装
 
@@ -136,7 +151,7 @@ npx siyuan-mcp-blocks
 
 ## 🛠️ 可用的 MCP 工具
 
-配置完成后，你可以通过自然语言与思源笔记交互。服务器提供 15 个核心工具：
+配置完成后，你可以通过自然语言与思源笔记交互。服务器提供 76 个工具，下面列出的是其中的核心部分；完整清单见[英文文档](./README.md)。
 
 ### 🔍 搜索
 - **unified_search** - 统一搜索工具：支持按内容、文件名、标签或任意组合搜索
@@ -298,7 +313,7 @@ import type {
 
 ```bash
 # 克隆并安装
-git clone https://github.com/yourusername/siyuan-mcp.git
+git clone https://github.com/ickybuck/siyuan-mcp.git
 cd siyuan-mcp
 npm install
 
