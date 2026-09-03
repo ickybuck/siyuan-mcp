@@ -35,6 +35,27 @@ Worth recording, in rough order of value to the next person:
 
 ---
 
+## 2026-09-03 — PF-73: the binary name collided (0.2.1)
+
+**Who:** Eric (Claude Code — "Code" thread)
+**Branch / PR:** `fix/bin-name-collision` (PR #29); published `siyuan-mcp-blocks@0.2.1`, deprecated 0.2.0
+
+**Changed**
+- `bin` renamed `siyuan-mcp` → `siyuan-mcp-blocks`. The package was renamed at 0.2.0 but the executable was not, so it still installed at the same path as upstream and both sibling forks.
+- Both READMEs: install instructions, config snippets, and the `mcpServers` key.
+- README_zh corrected — it still described upstream (15 tools, no fork section, a `yourusername` placeholder URL) while being the Chinese-language front page on npm.
+
+**Learned**
+- **A global install can silently substitute one MCP server for another.** Three packages installing `siyuan-mcp` means `npm install -g` of the second overwrites the first: no warning, last write wins, and the victim's client keeps starting fine while talking to a different server against the same workspace. Same failure shape as the rest of this project, except it happens on someone else's machine and neither party sees it.
+- **Renaming a binary is free for about a day.** No dependents and one version means nothing breaks. After anyone installs and configures it, the same change needs a major bump and a migration note. Worth checking `bin` at the moment a package is renamed, not later.
+- **npm reports a write-authorisation failure as `404 Not Found` on the PUT**, which reads as "the package does not exist". Re-authenticate before believing it.
+- **npm publishes asynchronously now** — "your package is being processed" — so the CLI prints success while the registry still serves the old version. A `npm deprecate` issued in that window could land on nothing and still report success. It did not here, but only reading both versions back proved it.
+- npm no longer offers TOTP enrolment: passkeys, recovery codes, and a require-2FA-for-writes toggle. Every publish needs a browser round trip, so none of it can be driven from a Claude Code session.
+
+**Left unfinished**
+- PF-67, PF-69 and PF-73 are with Chat to verify against the live package.
+- Still no release process: version bumps and publishes are manual, and nothing ties a git tag to an npm version.
+
 ## 2026-09-02 (later) — published to npm as siyuan-mcp-blocks
 
 **Who:** Eric (Claude Code — "Code" thread)
