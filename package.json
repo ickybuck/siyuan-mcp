@@ -1,12 +1,12 @@
 {
   "name": "siyuan-mcp-blocks",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "MCP server for SiYuan Note with block-level editing and full database (attribute view) support — an expanded fork of @porkll/siyuan-mcp",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "type": "module",
   "bin": {
-    "siyuan-mcp": "dist/mcp-server/bin/cli.js"
+    "siyuan-mcp-blocks": "dist/mcp-server/bin/cli.js"
   },
   "scripts": {
     "build": "tsc",

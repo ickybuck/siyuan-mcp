@@ -98,7 +98,7 @@ npm install -g siyuan-mcp-blocks
 npx siyuan-mcp-blocks
 ```
 
-After global installation, the `siyuan-mcp` command will be available globally.
+After global installation, the `siyuan-mcp-blocks` command will be available globally.
 
 ## 🔧 Configuration
 
@@ -120,7 +120,7 @@ Edit your MCP configuration file at `~/.cursor/mcp.json`:
 ```json
 {
   "mcpServers": {
-    "siyuan-mcp": {
+    "siyuan-mcp-blocks": {
       "command": "npx",
       "args": [
         "-y",
@@ -136,7 +136,7 @@ Edit your MCP configuration file at `~/.cursor/mcp.json`:
 }
 ```
 
-**Note**: If you installed globally, you can use `"command": "siyuan-mcp"` instead of `"command": "npx"`.
+**Note**: If you installed globally, you can use `"command": "siyuan-mcp-blocks"` instead of `"command": "npx"`.
 
 ### Configure for Claude Desktop
 
@@ -147,7 +147,7 @@ Edit the configuration file at:
 ```json
 {
   "mcpServers": {
-    "siyuan-mcp": {
+    "siyuan-mcp-blocks": {
       "command": "npx",
       "args": [
         "-y",
@@ -163,7 +163,7 @@ Edit the configuration file at:
 }
 ```
 
-**Note**: If you installed globally, you can use `"command": "siyuan-mcp"` instead of `"command": "npx"`.
+**Note**: If you installed globally, you can use `"command": "siyuan-mcp-blocks"` instead of `"command": "npx"`.
 
 ### Verify Installation
 

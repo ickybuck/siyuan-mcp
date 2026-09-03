@@ -5,6 +5,17 @@ kept as they were written. Entries from 0.2.0 up are this fork's.
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-09-03
+
+### Fixed
+- The installed executable is now `siyuan-mcp-blocks`, matching the package name. It was still
+  `siyuan-mcp` — the same name upstream and both sibling forks install, so a global install of a
+  second one silently overwrote the first and the MCP client then talked to a different server
+  against the same workspace, with no warning at any point.
+- README config snippets and the `mcpServers` key updated to match, in both languages.
+- README_zh still described upstream: 15 tools, no fork section, and a placeholder clone URL. It is
+  the Chinese-language front page on npm, so the corrections matter there.
+
 ## [0.2.0] - 2026-09-02
 
 ### Changed
