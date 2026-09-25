@@ -16,6 +16,13 @@ export interface ServerConfig {
   name?: string;
   /** 服务器版本 */
   version?: string;
+  /**
+   * 工具名前缀。留空则保持原样，与旧行为一致。
+   * 设置之后，对外广播的工具名统一带上前缀，且**只接受**带前缀的调用。
+   * 用途见 core/tool-prefix.ts：同时挂载两个指向不同工作区的实例时，同名工具会让
+   * 客户端选错目标，而选错不会报错。
+   */
+  toolPrefix?: string;
 }
 
 /**

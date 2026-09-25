@@ -15,6 +15,15 @@ import { DefaultToolRegistry } from './registry.js';
 import { ConsoleLogger } from './logger.js';
 import { createAllHandlers } from '../handlers/index.js';
 import { getUsageGuide } from './usage-guide.js';
+import {
+  MAX_TOOL_NAME_LENGTH,
+  applyToolPrefix,
+  normalizeToolPrefix,
+  stripToolPrefix,
+} from './tool-prefix.js';
+
+/** 未加前缀时的提示词名，保持不变。 */
+const USAGE_GUIDE_PROMPT = 'siyuan-usage-guide';
 
 /**
  * SiYuan MCP 服务器
@@ -24,8 +33,13 @@ export class SiyuanMCPServer {
   private registry = new DefaultToolRegistry();
   private context: ExecutionContext;
   private logger = new ConsoleLogger();
+  private toolPrefix: string;
 
   constructor(config: ServerConfig) {
+    // 前缀在这里就校验，非法值直接抛——部署时立刻失败，好过带着一个悄悄被忽略的
+    // 前缀跑起来，那正是这个功能要防的那种“看着对、其实指向另一个工作区”。
+    this.toolPrefix = normalizeToolPrefix(config.toolPrefix);
+
     // 初始化 SiYuan 工具
     const siyuan = createSiyuanTools(config.baseUrl, config.token);
 
@@ -66,6 +80,22 @@ export class SiyuanMCPServer {
       this.registry.register(handler);
       this.logger.debug(`Registered tool: ${handler.name}`);
     }
+
+    if (this.toolPrefix) {
+      // 有些客户端会拒绝超长工具名，而拒绝的表现是那几个工具从列表里消失，不报错。
+      // 启动时点名，总好过事后去猜为什么少了两个工具。
+      const tooLong = handlers
+        .map((handler) => applyToolPrefix(this.toolPrefix, handler.name))
+        .filter((name) => name.length > MAX_TOOL_NAME_LENGTH);
+
+      if (tooLong.length > 0) {
+        this.logger.error(
+          `Tool prefix '${this.toolPrefix}' pushes ${tooLong.length} tool name(s) past ` +
+            `${MAX_TOOL_NAME_LENGTH} characters, which some clients reject silently: ` +
+            `${tooLong.join(', ')}. Use a shorter prefix.`
+        );
+      }
+    }
   }
 
   /**
@@ -75,13 +105,15 @@ export class SiyuanMCPServer {
     // 处理工具列表请求
     this.mcpServer.setRequestHandler(ListToolsRequestSchema, async () => {
       const tools: MCPTool[] = this.registry.getAll().map((handler) => ({
-        name: handler.name,
+        name: applyToolPrefix(this.toolPrefix, handler.name),
         description: handler.description,
         inputSchema: handler.inputSchema,
         annotations: handler.annotations,
       }));
 
-      this.logger.debug(`Listing ${tools.length} tools`);
+      this.logger.debug(
+        `Listing ${tools.length} tools${this.toolPrefix ? ` prefixed '${this.toolPrefix}'` : ''}`
+      );
       return { tools };
     });
 
@@ -90,7 +122,7 @@ export class SiyuanMCPServer {
       return {
         prompts: [
           {
-            name: 'siyuan-usage-guide',
+            name: applyToolPrefix(this.toolPrefix, USAGE_GUIDE_PROMPT),
             description:
               'How to use this server effectively: which tool to reach for, the ordering constraints that matter, and the failure modes that are silent rather than loud. Worth reading before bulk imports or any database work.',
           },
@@ -102,7 +134,9 @@ export class SiyuanMCPServer {
     this.mcpServer.setRequestHandler(GetPromptRequestSchema, async (request) => {
       const { name } = request.params;
 
-      if (name === 'siyuan-usage-guide') {
+      // 提示词是只读的，拿错了最多是读到一份指南，没有写错目标的风险，所以这里
+      // 两种名字都认。工具调用则必须严格匹配。
+      if (name === USAGE_GUIDE_PROMPT || name === applyToolPrefix(this.toolPrefix, USAGE_GUIDE_PROMPT)) {
         const guide = getUsageGuide();
         return {
           messages: [
@@ -134,7 +168,19 @@ export class SiyuanMCPServer {
       this.logger.info(`Tool called: ${name}`);
 
       try {
-        const handler = this.registry.get(name);
+        const registeredName = stripToolPrefix(this.toolPrefix, name);
+        if (registeredName === undefined) {
+          // 裸名照单全收会让前缀形同虚设：一个握着旧工具列表的客户端会继续用裸名
+          // 调用，而前缀存在的理由正是消除“这个 update_block 写向哪个工作区”的歧义。
+          // 报错里带上正确的名字，重试一次就能恢复。
+          throw new Error(
+            `Unknown tool: ${name}. This server advertises tools prefixed ` +
+              `'${this.toolPrefix}' — call '${applyToolPrefix(this.toolPrefix, name)}' instead. ` +
+              'If your client cached an older tool list, reconnect it.'
+          );
+        }
+
+        const handler = this.registry.get(registeredName);
         if (!handler) {
           throw new Error(`Unknown tool: ${name}`);
         }
