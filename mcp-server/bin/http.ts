@@ -41,6 +41,16 @@ function parseArgs(): Partial<ServerConfig> & { port?: number } {
           config.port = parseInt(args[++i]);
         }
         break;
+      case '--tool-prefix':
+        if (i + 1 < args.length) {
+          config.toolPrefix = args[++i];
+        }
+        break;
+      case '--name':
+        if (i + 1 < args.length) {
+          config.name = args[++i];
+        }
+        break;
       case '--help':
       case '-h':
         printHelp();
@@ -67,6 +77,8 @@ Required:
 Options:
   --baseUrl <string>    SiYuan base URL (or SIYUAN_BASE_URL; default: http://127.0.0.1:6806)
   --port, -p <number>   HTTP server port (or PORT; default: 3000)
+  --tool-prefix <string>  Prefix every advertised tool name (or MCP_TOOL_PREFIX)
+  --name <string>       Server name reported to clients (or MCP_SERVER_NAME)
   --help, -h            Show this help message
 
 Environment variables:
@@ -74,8 +86,18 @@ Environment variables:
                         since it keeps the token out of the process arguments.
   SIYUAN_BASE_URL       SiYuan base URL
   PORT                  HTTP server port
+  MCP_TOOL_PREFIX       Tool-name prefix
+  MCP_SERVER_NAME       Server name reported to clients
 
 Command-line flags take precedence over environment variables.
+
+About --tool-prefix:
+  Run two instances against two workspaces and both advertise identical tool
+  names by default, so a client with both connectors enabled is choosing
+  between same-named tools that write to different places — and choosing wrong
+  is silent. A prefix makes the names distinct: 'tvhsop' advertises
+  tvhsop_update_block. Once set, calls MUST use the prefixed name; an
+  unprefixed call is rejected rather than quietly accepted.
 
 Example:
   node http.js --token YOUR_API_TOKEN
@@ -119,6 +141,8 @@ async function main() {
   const token = config.token || process.env.SIYUAN_TOKEN;
   const baseUrl = config.baseUrl || process.env.SIYUAN_BASE_URL || 'http://127.0.0.1:6806';
   const envPort = process.env.PORT ? parseInt(process.env.PORT, 10) : undefined;
+  const toolPrefix = config.toolPrefix || process.env.MCP_TOOL_PREFIX;
+  const name = config.name || process.env.MCP_SERVER_NAME || 'siyuan-mcp-server-http';
 
   // 验证必需参数
   if (!token) {
@@ -130,8 +154,9 @@ async function main() {
   const serverConfig: ServerConfig = {
     token,
     baseUrl,
-    name: 'siyuan-mcp-server-http',
+    name,
     version: '0.1.0',
+    toolPrefix,
   };
 
   const port = config.port || envPort || 3000;
@@ -248,9 +273,11 @@ async function main() {
 ✅ SiYuan MCP Server (HTTP/SSE) is running!
 
 Server Info:
+  - Name: ${serverConfig.name}
   - Port: ${port}
   - Endpoint: http://localhost:${port}/mcp
   - SiYuan Base URL: ${serverConfig.baseUrl}
+  - Tool prefix: ${serverConfig.toolPrefix ? `${serverConfig.toolPrefix} (unprefixed calls are rejected)` : '(none)'}
 
 Available Methods:
   - GET  http://localhost:${port}/mcp - Establish SSE connection

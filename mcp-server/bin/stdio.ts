@@ -34,6 +34,16 @@ function parseArgs(): Partial<ServerConfig> {
           config.baseUrl = args[++i];
         }
         break;
+      case '--tool-prefix':
+        if (i + 1 < args.length) {
+          config.toolPrefix = args[++i];
+        }
+        break;
+      case '--name':
+        if (i + 1 < args.length) {
+          config.name = args[++i];
+        }
+        break;
       case '--help':
       case '-h':
         printHelp();
@@ -59,6 +69,11 @@ Required:
 
 Options:
   --baseUrl <string>    SiYuan base URL (default: http://127.0.0.1:6806)
+  --tool-prefix <string>  Prefix every advertised tool name (or MCP_TOOL_PREFIX).
+                        Use this when more than one instance is connected to the
+                        same client, so tools pointed at different workspaces do
+                        not share names. Once set, unprefixed calls are rejected.
+  --name <string>       Server name reported to clients (or MCP_SERVER_NAME)
   --help, -h            Show this help message
 
 Example:
@@ -84,8 +99,9 @@ async function main() {
   const serverConfig: ServerConfig = {
     token: config.token,
     baseUrl: config.baseUrl || 'http://127.0.0.1:6806',
-    name: 'siyuan-mcp-server-stdio',
+    name: config.name || process.env.MCP_SERVER_NAME || 'siyuan-mcp-server-stdio',
     version: '0.1.0',
+    toolPrefix: config.toolPrefix || process.env.MCP_TOOL_PREFIX,
   };
 
   // 创建服务器
@@ -102,6 +118,9 @@ async function main() {
   logger.info(`Base URL: ${serverConfig.baseUrl}`);
   logger.info(`Token: ${serverConfig.token.substring(0, 8)}...`);
   logger.info(`Registered ${server.getRegistry().getAll().length} tools`);
+  if (serverConfig.toolPrefix) {
+    logger.info(`Tool prefix: ${serverConfig.toolPrefix} (unprefixed calls are rejected)`);
+  }
 }
 
 // 错误处理

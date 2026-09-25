@@ -35,6 +35,57 @@ Worth recording, in rough order of value to the next person:
 
 ---
 
+## 2026-09-24 — Tool-name prefixing, so two instances can be connected at once
+
+**Who:** Eric (Claude Code)
+**Branch / PR:** `feat/tool-name-prefix` — not merged, see Left unfinished
+
+**Changed**
+- New `mcp-server/core/tool-prefix.ts`: `normalizeToolPrefix`, `applyToolPrefix`, `stripToolPrefix`,
+  and `MAX_TOOL_NAME_LENGTH`. Pure functions, no dependencies, so they are testable without a kernel.
+- `ServerConfig.toolPrefix`. When set, `tools/list` advertises `<prefix>_<name>` and `tools/call`
+  accepts **only** the prefixed form. `ListPrompts` prefixes the usage-guide prompt too.
+- Both entry points take `--tool-prefix` / `MCP_TOOL_PREFIX`, and `--name` / `MCP_SERVER_NAME` for
+  the name reported in `serverInfo`. Flags beat env, matching the existing precedence.
+- The prefix is validated in the constructor, so a bad value fails the boot rather than being
+  silently ignored — a silently-ignored prefix is exactly the state this feature exists to prevent.
+
+**Learned**
+- The problem this solves is not cosmetic. Run two instances against two workspaces and both
+  advertise identical tool names; a client with both connectors enabled is choosing between
+  same-named tools that write to different places, and choosing wrong is silent. Distinct
+  connector labels are not enough, because the model sees the tool names.
+- `tools/call` deliberately **rejects** an unprefixed name rather than accepting it. Accepting both
+  was the first design and it is wrong: a client holding a cached tool list would keep calling bare
+  names forever and the prefix would become decoration. The error names the correct tool, so
+  recovery is one retry. This is the same "fail loudly" rule as the rest of the project.
+- `GetPrompt` does accept both forms, because a prompt is read-only — worst case you read a guide.
+  The asymmetry is deliberate and commented at both sites.
+- Longest tool name is `create_database_row_from_template_with_markdown` (47). With a 7-character
+  prefix that is 54, inside the 64 some clients enforce. Anything longer than about 16 characters
+  of prefix starts pushing tools over, and a client that rejects a name drops the tool from its
+  list without an error — so the server logs the offending names at boot instead.
+
+**Did not work**
+- `npm test` is still the pre-existing casualty described in CLAUDE.md: `integration.test.ts` does
+  not compile, so the suite cannot run and there is no unit suite to add to. Fixing it is not this
+  change's business. Verified instead by (a) a throwaway node script against `dist/` covering all
+  16 helper cases, and (b) the real MCP protocol against the live kernel using the dist-mount
+  pattern in the onboarding section of the project hub — a throwaway container on the target's
+  docker network, so nothing deployed was touched.
+- Verification results: `serverInfo.name` came back as the configured name, 76 of 76 tools were
+  prefixed, a prefixed `tools/call` reached the kernel, and a bare one returned the guidance error.
+
+**Left unfinished**
+- Branch is committed but **not merged**, because merging `main` is a deployment and that is the
+  other person's call, not something to trigger from the session that wrote the change.
+- Existing deployments are unaffected: with no prefix configured the behaviour is byte-for-byte
+  what it was, and the default stays empty.
+- Turning it on for an instance is a deployment change (two environment variables) and therefore
+  belongs in the private project hub, not here.
+
+---
+
 ## 2026-09-03 — PF-73: the binary name collided (0.2.1)
 
 **Who:** Eric (Claude Code — "Code" thread)
