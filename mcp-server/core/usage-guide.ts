@@ -79,9 +79,23 @@ it is not the cheap read it looks like. For primary keys alone,
 
 ## Cross-document links
 
-A block reference is \`((block-id "anchor text"))\`. The ID must be a real block ID — use
-\`unified_search\` or \`get_child_blocks\` to find it rather than guessing. Links survive renames
-because they bind to the ID, not the title.
+Link, don't just name. SiYuan's value is in its links: every reference shows up in the target's
+backlinks panel and graph, and survives renames because it binds to the ID, not the title. When you
+write or edit a note, turn every mention of another note, heading, decision, task or record into a
+reference instead of its title in quotes or a path like "Section › Page › Heading".
+
+- **Block reference:** \`((block-id "anchor text"))\`. With double quotes the anchor text is fixed;
+  with single quotes, \`((block-id 'anchor text'))\`, it follows the target's title when that changes.
+  It works for a whole note (a document ID), a heading or a single block.
+- **Find the real ID first** with \`unified_search\` or \`get_child_blocks\`. Never guess or reuse an
+  ID from memory: a wrong ID makes a link that silently points at nothing.
+- **Where to link:** the first mention of each target in a block, not every repeat. Link a how-to
+  to the notes it depends on, a log or decision entry to the note it changed, a status line to the
+  open question it closes, and an index or list of notes to each note.
+- **Links to the outside** (websites, files) stay ordinary markdown links. To point at a SiYuan block
+  from outside SiYuan, use \`siyuan://blocks/<block-id>\`.
+- A reference inside a database **text** cell is plain text, not a link; a database **block** cell
+  holds a real block and can carry one.
 
 ## Bulk import
 

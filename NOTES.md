@@ -35,6 +35,26 @@ Worth recording, in rough order of value to the next person:
 
 ---
 
+## 2026-11-07 — Usage guide: when and how to link
+
+**Who:** Eric (via Claude Code, wordpress repo session)
+**Branch / PR:** docs/linking-guidance (not pushed, not deployed)
+
+**Changed**
+- `usage-guide.ts`, "Cross-document links": was only the reference syntax. Now it tells agents to link
+  every mention of another note, heading, decision or task; to find real IDs first; where links
+  belong; fixed vs following anchors (double vs single quotes); `siyuan://blocks/<id>` for links from
+  outside; and that references in database text cells are not links.
+
+**Learned**
+- Block references written through `update_block` / `insert_block_after` as markdown are stored as
+  real references (checked with `get_block_kramdown` on 2026-11-07).
+
+**Left unfinished**
+- Deploy: needs a build and a restart of the HTTP server so connected clients get the new guide.
+
+---
+
 ## 2026-09-24 — Tool-name prefixing, so two instances can be connected at once
 
 **Who:** Eric (Claude Code)
