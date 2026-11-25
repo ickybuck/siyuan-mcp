@@ -9,7 +9,7 @@ import type { NotebookResponse, SearchResultResponse } from '../../src/types/ind
 /**
  * 列出所有笔记本
  */
-export class ListNotebooksHandler extends BaseToolHandler<{}, NotebookResponse[]> {
+export class ListNotebooksHandler extends BaseToolHandler<Record<string, never>, NotebookResponse[]> {
   readonly name = 'list_notebooks';
   readonly annotations = { readOnlyHint: true } as const;
   readonly description = 'List all notebooks in your SiYuan workspace. Notebooks are top-level containers for organizing your notes';

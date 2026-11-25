@@ -44,18 +44,18 @@ npm run mcp:http     # run the HTTP server from dist/
 
 Three things about these are not obvious and will waste your time otherwise:
 
-- **`npm test` does not currently run at all.** The suite fails to compile: `__tests__/integration.test.ts`
-  has eight TypeScript errors around line 415, reading `.count` and `.updatedIds` off a `boolean`
-  — the tag-replace handler's return type changed and the test was never updated. It fails before
-  it reaches the network, so this is not about your environment. Even once that is fixed, the only
-  tests are integration tests: they import from `dist/` (**build first or you test stale code**),
-  they need a live SiYuan instance with `SIYUAN_TOKEN` in `.env` (copy `.env.example`), and they
-  create and delete real notes in the notebook named by `SIYUAN_TEST_NOTEBOOK`. There is no
-  unit-test suite.
-- **`npm run lint` does not work.** The script exists but no ESLint config does, so it exits with
-  "couldn't find a configuration file". Do not put it in a checklist and do not treat its failure
-  as your change breaking something. Adding a config is a real decision, not a fix to slip into an
-  unrelated PR.
+- **`npm test` needs a live SiYuan.** The suite compiles (the old type errors around the
+  tag-replace handler are fixed), but the only tests are integration tests: they import from
+  `dist/` (**build first or you test stale code**), they need a SiYuan instance with
+  `SIYUAN_TOKEN` in `.env` (copy `.env.example`), and they create and delete real notes in the
+  notebook named by `SIYUAN_TEST_NOTEBOOK`. Without a token the run stops at once with
+  "SIYUAN_TOKEN is not set". Run it through `npm test`, not bare `npx jest`: the script adds
+  `--experimental-vm-modules`, without which Jest cannot load the ESM build and fails with a
+  misleading "Cannot use import statement outside a module". There is no unit-test suite.
+- **`npm run lint` lints `src` and `mcp-server`** (`.eslintrc.cjs`, ESLint 8). It must finish
+  with 0 errors. `no-explicit-any` is only a warning because the existing code has about 260 of
+  them; do not add new ones, and do not run `--fix` across the repo for the same reason as
+  Prettier below.
 - **Do not run `npm run format` across the repo.** Prettier is configured and the existing code
   does not satisfy it, so a repo-wide run rewrites files you did not touch and buries your diff.
   Match the formatting of the file you are editing.

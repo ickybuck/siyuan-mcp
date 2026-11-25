@@ -15,7 +15,7 @@
     "prepublishOnly": "npm run clean && npm run build",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
     "test:watch": "node --experimental-vm-modules node_modules/jest/bin/jest.js --watch",
-    "lint": "eslint src --ext .ts",
+    "lint": "eslint src mcp-server --ext .ts",
     "format": "prettier --write \"src/**/*.ts\"",
     "mcp:stdio": "node dist/mcp-server/bin/stdio.js",
     "mcp:http": "node dist/mcp-server/bin/http.js"

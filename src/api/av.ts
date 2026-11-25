@@ -2047,7 +2047,7 @@ export class SiyuanAvApi {
 
     if (!merged.itemIDs.length) return merged;
 
-    let template = options.templateID
+    const template = options.templateID
       ? templates.find((t) => t?.id === options.templateID)
       : templates.find((t) => t?.id === attributeView?.defaultTemplateID) ?? (templates.length === 1 ? templates[0] : undefined);
 
