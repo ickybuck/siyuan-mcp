@@ -35,7 +35,6 @@
       "Bash(cat .env:*)",
       "Bash(cat ./.env:*)",
       "Bash(npm run format:*)",
-      "Bash(git push:*)",
       "Bash(git commit --no-verify:*)"
     ]
   }
