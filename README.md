@@ -356,6 +356,41 @@ The server exposes an MCP **prompt**, `siyuan-usage-guide`, covering tool choice
 constraints, and the silent failure modes. MCP clients can fetch it directly — it's aimed at the
 model doing the calling rather than at a human reader.
 
+## ✅ Optional: task-list web page (HTTP server only)
+
+The HTTP server can also serve a small browser page for **one** to-do database, at `/tasks`. It is off
+unless you set both variables:
+
+| Variable | Meaning |
+| --- | --- |
+| `TASKS_AV_ID` | The database ID |
+| `TASKS_VIEW_ID` | An **unfiltered** view of it (every row, done or not) |
+
+The page groups rows by Source, filters by Scope (`/tasks?scope=<name>`, default `Routines`), and lets you
+tick a row (checkbox only; clicking the text expands it) or edit Task, Due, Priority, Who, Waiting on,
+Next action and Notes. Fields are found by name: `Task`, `Done`, `Done date`, `Scope` and `Last touched`
+are required; `ID`, `Routine`, `Source`, `Topic`, `Who`, `Client`, `Priority`, `Due`, `Waiting on`,
+`Next action`, `Notes` and `Order` are used when present.
+
+- The SiYuan token stays on the server; the browser only talks to `/tasks/api/*`.
+- Only that database, only those fields. Select values must already be options (no silent new options).
+- Every write is read back from SiYuan before the page reports success; a mismatch is shown as an error.
+- **This server has no authentication.** Expose only the `/tasks` path, and only to people you trust
+  (for example a Tailscale Serve path mount). Never expose `/mcp` alongside it.
+
+**JSON API** (same server, for scripts and agents). Every POST needs `Content-Type: application/json`
+and `X-Tasks-Client: 1`. `today` (YYYY-MM-DD) is optional; without it the server uses the date at UTC-6.
+
+| Call | Body / query | Does |
+| --- | --- | --- |
+| `GET /tasks/api/rows` | `?scope=<name>&status=open\|done\|all` | Rows, select options, editable fields |
+| `POST /tasks/api/add` | `task`, `id`, `scope` (list), `source`, `topic`, `who` required; optional `routine`, `client`, `priority`, `due`, `waitingOn`, `nextAction`, `notes`, `order` | Adds one open row. `409` if the ID is taken (case-insensitive), naming the row |
+| `POST /tasks/api/update` | `row`, `changes` (any of the optional fields above, `text`, `scope`, `source`, `topic`, `who`, or `done`) | Changes one row. `done` also sets or clears `Done date` |
+
+Both writes set `Last touched` (and `add` sets `Added`), read the row back, and answer with it, or with
+`502` if SiYuan did not confirm. A select value that is not already an option is refused unless the field
+is named in `new_options` (e.g. `"new_options": ["scope"]` for a new repo). There is no delete.
+
 ## ⚠️ Notes & Gotchas
 
 Behaviours found by testing against a live kernel. Most of these fail silently or in a misleading

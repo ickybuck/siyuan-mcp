@@ -15,6 +15,8 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import { SiyuanMCPServer } from '../core/server.js';
 import type { ServerConfig } from '../core/types.js';
+import { SiyuanTools } from '../../src/index.js';
+import { TasksService, handleTasksRequest } from '../web/tasks.js';
 
 /**
  * 解析命令行参数
@@ -88,6 +90,8 @@ Environment variables:
   PORT                  HTTP server port
   MCP_TOOL_PREFIX       Tool-name prefix
   MCP_SERVER_NAME       Server name reported to clients
+  TASKS_AV_ID           Optional. Serve a task-list web page for this database at /tasks
+  TASKS_VIEW_ID         Required with TASKS_AV_ID: an unfiltered view of that database
 
 Command-line flags take precedence over environment variables.
 
@@ -108,6 +112,8 @@ Endpoints:
   GET  /mcp    - Establish SSE connection
   POST /mcp    - Send JSON-RPC message
   DELETE /mcp  - Close session
+  GET  /tasks  - Task-list page (only when TASKS_AV_ID is set; this server has
+                 no auth, so expose only /tasks, and only to trusted users)
   `);
 }
 
@@ -198,8 +204,24 @@ async function main() {
 
   const logger = bootstrapLogger;
 
+  // 可选的任务网页：只有设置了 TASKS_AV_ID 才启用，同一镜像的其它实例默认没有 /tasks
+  const tasksAv = process.env.TASKS_AV_ID?.trim();
+  const tasksView = process.env.TASKS_VIEW_ID?.trim();
+  if (tasksAv && !tasksView) {
+    console.error('Error: TASKS_AV_ID is set but TASKS_VIEW_ID is not. Set it to an unfiltered view of the task database.');
+    process.exit(1);
+  }
+  const tasks = tasksAv
+    ? new TasksService(new SiyuanTools({ token, baseUrl }), { avID: tasksAv, viewID: tasksView! })
+    : undefined;
+
   // 创建 HTTP 服务器
   const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse) => {
+    // /tasks 先于 CORS 处理：任务页不发送 CORS 头，跨源写入的预检因此必然失败
+    if (tasks && (await handleTasksRequest(tasks, req, res, (m) => logger.error(m)))) {
+      return;
+    }
+
     // 设置 CORS 头
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
@@ -278,6 +300,7 @@ Server Info:
   - Endpoint: http://localhost:${port}/mcp
   - SiYuan Base URL: ${serverConfig.baseUrl}
   - Tool prefix: ${serverConfig.toolPrefix ? `${serverConfig.toolPrefix} (unprefixed calls are rejected)` : '(none)'}
+  - Task page: ${tasks ? `http://localhost:${port}/tasks` : '(off; set TASKS_AV_ID and TASKS_VIEW_ID)'}
 
 Available Methods:
   - GET  http://localhost:${port}/mcp - Establish SSE connection
