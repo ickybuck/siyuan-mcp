@@ -111,6 +111,9 @@ form.edit input[type=text] { width: 100%; }
 form.edit .actions { grid-column: 1 / -1; display: flex; gap: 8px; justify-content: flex-end; }
 form.edit .actions button { font: 600 12px var(--ui); border-radius: 3px; padding: 3px 10px; cursor: pointer; border: 1px solid var(--line); background: var(--panel); color: var(--fg); }
 form.edit .actions button.save { background: var(--accent); border-color: var(--accent); color: var(--panel); }
+.addbtn { font: 600 12px var(--ui); color: var(--accent); background: var(--panel); border: 1px solid var(--accent); border-radius: 3px; padding: 2px 8px; cursor: pointer; }
+#addbox form.edit { margin-left: 0; }
+#addbox .check { display: flex; align-items: center; gap: 6px; font-size: 12px; }
 @media (max-width: 480px) { .gh { grid-template-columns: 1fr auto; } .gh .track { grid-column: 1 / -1; grid-row: 2; }
   form.edit { grid-template-columns: 1fr; margin-left: 0; } }
 @media (prefers-reduced-motion: reduce) { .fill { transition: none; } }
@@ -129,7 +132,9 @@ form.edit .actions button.save { background: var(--accent); border-color: var(--
       <button type="button" data-tag="Weekly" title="Weekly routine">W</button>
       <button type="button" data-tag="Monthly" title="Monthly routine">M</button>
     </div>
+    <button type="button" class="addbtn" id="addbtn" hidden>+ Add task</button>
   </div>
+  <div id="addbox"></div>
   <div id="list"><div class="empty">Loading the task list from SiYuan…</div></div>
   <div class="note" id="status" role="status"></div>
 </div>
@@ -140,7 +145,7 @@ var DEFAULT_SCOPE = 'Routines';
 var SOURCES = ['TvH', 'PE', 'VV', 'GM', 'BD', 'Personal'];
 var LETTER = { Daily: 'D', Weekly: 'W', Monthly: 'M' };
 var KEEP_DONE_DAYS = 7;
-var REFRESH_MS = 60000;
+var REFRESH_MS = 20000;
 var COPY_SVG = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M3.5 10.5h-.5a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1h6.5a1 1 0 0 1 1 1v.5"/></svg>';
 var EDIT_SVG = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M10.5 2.5l3 3L6 13H3v-3z"/></svg>';
 var API = location.pathname.replace(/\/+$/, '') + '/api/';
@@ -410,10 +415,11 @@ function load() {
     items = data.rows; options = data.options || {}; editable = data.editable || [];
     pending.forEach(function (v, row) { var it = items.find(function (i) { return i.row === row; }); if (it && it.done === v) pending.delete(row); });
     loaded = true;
+    document.getElementById('addbtn').hidden = false;
     if (/^Could not load/.test(statusEl.textContent)) say('');
     render();
   }).catch(function (e) {
-    say('Could not load the list from SiYuan: ' + e.message + '. Retrying every minute.', true);
+    say('Could not load the list from SiYuan: ' + e.message + '. Retrying shortly.', true);
   }).finally(function () { loading = false; });
 }
 
@@ -439,6 +445,72 @@ function setDone(it, value) {
   pending.set(it.row, value);
   write(it, { done: value });
 }
+
+// Add a task. The form lives outside #list, so background refreshes never wipe what is typed.
+var addBox = document.getElementById('addbox');
+function slugify(text, scopeName) {
+  var words = String(text).toLowerCase().replace(/[^a-z0-9\s-]/g, ' ').split(/\s+/).filter(Boolean).slice(0, 5);
+  var pre = String(scopeName || 'general').toLowerCase().replace(/[^a-z0-9-]/g, '');
+  return (pre + '-' + words.join('-')).replace(/-+/g, '-').replace(/^-|-$/g, '').slice(0, 60).replace(/-$/, '');
+}
+function addForm() {
+  var f = document.createElement('form'); f.className = 'edit';
+  function row(label, el) { el.id = 'a-' + el.name; var l = document.createElement('label'); l.htmlFor = el.id; l.textContent = label; f.append(l, el); }
+  var t = document.createElement('textarea'); t.name = 'task'; t.required = true;
+  t.placeholder = 'One plain sentence, with the names, amounts, dates and files needed'; row('Task', t);
+  var startScope = scope === 'All' ? 'General' : scope;
+  var scopes = Array.from(new Set(['General', 'Routines'].concat(options.scope || [], [startScope]))).sort();
+  var sc = selectEl('scope', scopes, startScope); sc.required = true; sc.options[0].disabled = true; row('Scope', sc);
+  var src = selectEl('source', options.source || SOURCES, ''); src.required = true; row('Source', src);
+  var tp = selectEl('topic', options.topic || [], ''); tp.required = true; row('Topic', tp);
+  var who = selectEl('who', options.who || ['Eric', 'Claude'], 'Eric'); who.required = true; row('Who', who);
+  row('Priority', selectEl('priority', options.priority || [], ''));
+  var d = document.createElement('input'); d.type = 'date'; d.name = 'due'; row('Due', d);
+  var cl = document.createElement('input'); cl.type = 'checkbox'; cl.name = 'client';
+  var cw = document.createElement('span'); cw.className = 'check'; cw.append(cl, document.createTextNode('About a client file'));
+  var cll = document.createElement('label'); cll.textContent = 'Client'; cl.id = 'a-client'; cll.htmlFor = 'a-client'; f.append(cll, cw);
+  [['waitingOn', 'Waiting on'], ['nextAction', 'Next action'], ['notes', 'Notes']].forEach(function (p) {
+    var i = document.createElement('input'); i.type = 'text'; i.name = p[0]; row(p[1], i);
+  });
+  var id = document.createElement('input'); id.type = 'text'; id.name = 'id'; id.placeholder = 'made from the scope and task';
+  id.pattern = '[a-z0-9][a-z0-9-]{1,79}'; id.title = 'Lowercase letters, digits and hyphens'; row('ID', id);
+  var idTouched = false;
+  id.addEventListener('input', function () { idTouched = !!id.value; });
+  function autoId() { if (!idTouched) id.value = t.value.trim() ? slugify(t.value, sc.value) : ''; }
+  t.addEventListener('input', autoId); sc.addEventListener('change', autoId);
+  var act = document.createElement('div'); act.className = 'actions';
+  var cancel = document.createElement('button'); cancel.type = 'button'; cancel.textContent = 'Cancel';
+  cancel.addEventListener('click', closeAdd);
+  var save = document.createElement('button'); save.type = 'submit'; save.className = 'save'; save.textContent = 'Add';
+  act.append(cancel, save); f.appendChild(act);
+  f.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var text = t.value.trim();
+    if (!text) { say('The task text cannot be empty.', true); return; }
+    var body = { task: text, id: id.value.trim() || slugify(text, sc.value), scope: [sc.value], source: src.value,
+      topic: tp.value, who: who.value, client: cl.checked, today: today() };
+    ['priority', 'due', 'waitingOn', 'nextAction', 'notes'].forEach(function (k) { var v = f.elements[k].value.trim(); if (v) body[k] = v; });
+    // A scope is created by the first row that uses it (protocol); the other fields must use existing options.
+    if ((options.scope || []).indexOf(sc.value) < 0) body.new_options = ['scope'];
+    save.disabled = true; save.textContent = 'Adding…';
+    api('add', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Tasks-Client': '1' }, body: JSON.stringify(body) })
+      .then(function (res) {
+        items.push(res.row);
+        if (body.new_options && (options.scope || []).indexOf(sc.value) < 0) options.scope = (options.scope || []).concat([sc.value]);
+        closeAdd(); say('Added: ' + res.row.text.slice(0, 80)); render();
+      }, function (err) {
+        say('Not added: ' + err.message, true);
+        save.disabled = false; save.textContent = 'Add';
+      });
+  });
+  return f;
+}
+function closeAdd() { addBox.replaceChildren(); document.getElementById('addbtn').setAttribute('aria-expanded', 'false'); }
+document.getElementById('addbtn').addEventListener('click', function (e) {
+  if (addBox.firstChild) { closeAdd(); return; }
+  addBox.appendChild(addForm()); e.currentTarget.setAttribute('aria-expanded', 'true');
+  addBox.querySelector('textarea').focus();
+});
 
 load();
 setInterval(function () { if (!document.hidden && !saving.size) load(); }, REFRESH_MS);

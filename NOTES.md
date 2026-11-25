@@ -35,6 +35,41 @@ Worth recording, in rough order of value to the next person:
 
 ---
 
+## 2026-11-25 (evening) — add-task form, faster refresh, ESLint config
+
+**Who:** Eric (Claude Code, agent container on the NAS)
+**Branch / PR:** `feat/tasks-add-form`, `chore/eslint-config` (separate PRs)
+
+**Changed**
+- `/tasks` page: a "+ Add task" button opens a form above the list (Task, Scope, Source, Topic,
+  Who, Priority, Due, Client, Waiting on, Next action, Notes, ID). The ID is made from the scope and
+  the first words of the task unless typed. It posts to the existing `/tasks/api/add`; a scope not
+  yet in the options is sent with `new_options: ["scope"]` (the protocol says the first row creates
+  it), every other select must use an existing option. On a 409 the form stays open with the
+  server's message. The form sits outside `#list`, so the refresh never wipes what is typed.
+- Refresh every 20 s instead of 60 s (still skipped while a write is in flight or the tab is hidden).
+- `.eslintrc.cjs`; `npm run lint` now covers `src` and `mcp-server` and finishes with 0 errors
+  (260 `no-explicit-any` warnings left as warnings on purpose). Four real findings fixed.
+- CLAUDE.md test caveat corrected (in the lint PR).
+
+**Learned**
+- The integration suite no longer has the type errors CLAUDE.md described; it compiles and stops only
+  at "SIYUAN_TOKEN is not set". Bare `npx jest` fails differently ("Cannot use import statement
+  outside a module") because it lacks `--experimental-vm-modules`; always use `npm test`.
+- This container has no Chromium/Playwright. The page was tested in jsdom against a mock API:
+  auto ID, new-scope option, form survives a background refresh, 409 keeps the form, required
+  fields block submit.
+
+**Did not work**
+- Running the suite against a throwaway SiYuan kernel (release tarball unpacked in the scratchpad):
+  the session's permission check refused to run the downloaded binary. Needs the owner's call.
+
+**Left unfinished**
+- The integration suite has still never been run green against a live kernel.
+- Neither PR is merged or deployed; the merged `feat/tasks-page` and `feat/tasks-favicon` branches
+  are still on GitHub (deleting them was refused by the session's permission check).
+- npm still has 0.2.1; publishing needs an npm login this container does not have.
+
 ## 2026-11-25 — Task-list web page at /tasks
 
 **Who:** Eric (Claude Code, agent container on the NAS)
