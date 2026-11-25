@@ -22,6 +22,13 @@ import { ITEM_ID_KEY } from '../../src/api/av.js';
 import { randomBytes } from 'node:crypto';
 import { readBackUntil } from '../../src/utils/readback.js';
 import { TASKS_PAGE_HTML } from './tasks-page.js';
+import { APPLE_TOUCH_PNG, FAVICON_ICO, FAVICON_SVG } from './tasks-icons.js';
+
+const ICONS: Record<string, { type: string; body: string | Buffer }> = {
+  '/tasks/favicon.svg': { type: 'image/svg+xml', body: FAVICON_SVG },
+  '/tasks/favicon.ico': { type: 'image/x-icon', body: FAVICON_ICO },
+  '/tasks/apple-touch-icon.png': { type: 'image/png', body: APPLE_TOUCH_PNG },
+};
 
 export interface TasksConfig {
   avID: string;
@@ -560,7 +567,15 @@ export async function handleTasksRequest(
   if (path !== '/tasks' && !path.startsWith('/tasks/')) return false;
 
   try {
-    if (path === '/tasks' && req.method === 'GET') {
+    const icon = ICONS[path];
+    if (icon && (req.method === 'GET' || req.method === 'HEAD')) {
+      res.writeHead(200, {
+        'Content-Type': icon.type,
+        'Cache-Control': 'public, max-age=86400',
+        'X-Content-Type-Options': 'nosniff',
+      });
+      res.end(req.method === 'HEAD' ? undefined : icon.body);
+    } else if (path === '/tasks' && req.method === 'GET') {
       send(res, 200, TASKS_PAGE_HTML, 'text/html');
     } else if (path === '/tasks/api/rows' && req.method === 'GET') {
       send(res, 200, await service.list({
