@@ -14,6 +14,10 @@ export const TASKS_PAGE_HTML = String.raw`<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Tasks</title>
+<link rel="icon" href="/tasks/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/tasks/favicon.ico" sizes="16x16 32x32 48x48">
+<link rel="apple-touch-icon" href="/tasks/apple-touch-icon.png">
+<meta name="theme-color" content="#2f6f5e">
 <style>
 :root {
   --bg: #f6f7f5; --panel: #ffffff; --fg: #1d2421; --muted: #66706b; --line: #dde2de;
