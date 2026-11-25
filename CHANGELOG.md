@@ -5,6 +5,20 @@ kept as they were written. Entries from 0.2.0 up are this fork's.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-25
+
+### Added
+- Optional tool-name prefix (`--tool-prefix` / `MCP_TOOL_PREFIX`) and server name
+  (`--name` / `MCP_SERVER_NAME`), so two instances against two workspaces can be connected to one
+  client without identical tool names. Once set, unprefixed calls are rejected, naming the right tool.
+- Optional task-list web page at `/tasks` on the HTTP server, with a JSON API (`rows`, `add`,
+  `update`) and an add-task form. Off unless `TASKS_AV_ID` and `TASKS_VIEW_ID` are set. Every write
+  is read back from SiYuan before it is reported.
+- ESLint configuration; `npm run lint` now works.
+
+### Changed
+- Usage guide: when and how to link notes with block references.
+
 ## [0.2.1] - 2026-09-03
 
 ### Fixed

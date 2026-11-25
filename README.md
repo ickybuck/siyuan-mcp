@@ -165,6 +165,15 @@ Edit the configuration file at:
 
 **Note**: If you installed globally, you can use `"command": "siyuan-mcp-blocks"` instead of `"command": "npx"`.
 
+### Connecting two workspaces at once
+
+Run one server per workspace and give each a tool-name prefix with `--tool-prefix` (or
+`MCP_TOOL_PREFIX`), plus `--name` / `MCP_SERVER_NAME` for the name reported to clients. Without a
+prefix both servers advertise identical tool names, so a client with both connected picks between
+same-named tools that write to different places, and a wrong pick is silent. With prefix `work`,
+`update_block` is advertised as `work_update_block`, and an unprefixed call is rejected with the
+correct name rather than accepted. With no prefix set, behaviour is unchanged.
+
 ### Verify Installation
 
 After configuration, restart your MCP client (Cursor/Claude Desktop) and try:
