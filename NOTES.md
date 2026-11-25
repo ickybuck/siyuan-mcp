@@ -61,8 +61,14 @@ Worth recording, in rough order of value to the next person:
 - The first readback compared field keys to row property names and reported 502 on Last touched and Task
   even though the writes had landed. Fixed. A 502 from this page means "not confirmed", not "not written".
 
+- Second commit, same day: a JSON API for agents on the same routes (`rows?scope=&status=`, `add`,
+  `update` with scope/source/topic/routine/client/order too). `add` refuses a used ID (409) and unknown
+  select values unless `new_options` names the field. New rows get a SiYuan-shaped ID from the current
+  time; an earlier version derived it with `deriveItemId`, which gives timestamps around the year 2000
+  and would sort oddly anywhere SiYuan orders by ID.
+
 **Left unfinished**
-- No "add task" form: sessions add rows through MCP, and the ID rules need judgement.
+- No "add task" form in the page itself (the API has `add`).
 - The page polls every 60 s; a tick made in SiYuan shows up on the next poll, not instantly.
 
 ---

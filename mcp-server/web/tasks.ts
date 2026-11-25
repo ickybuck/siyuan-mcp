@@ -18,6 +18,8 @@
 
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { SiyuanTools } from '../../src/index.js';
+import { ITEM_ID_KEY } from '../../src/api/av.js';
+import { randomBytes } from 'node:crypto';
 import { readBackUntil } from '../../src/utils/readback.js';
 import { TASKS_PAGE_HTML } from './tasks-page.js';
 
@@ -44,22 +46,36 @@ const FIELD_NAMES = {
   waitingOn: 'Waiting on',
   nextAction: 'Next action',
   notes: 'Notes',
+  added: 'Added',
   lastTouched: 'Last touched',
   order: 'Order',
 } as const;
 type FieldKey = keyof typeof FIELD_NAMES;
 const REQUIRED: FieldKey[] = ['task', 'done', 'doneAt', 'scope', 'lastTouched'];
 
-/** Fields a browser may change, and the type each must have in SiYuan. */
+/**
+ * API field name -> database field and the type it must have. These are the only fields a caller
+ * may set (plus done, which also sets Done date). ID, Added and Last touched are set by the server.
+ */
 const EDITABLE: Record<string, { field: FieldKey; type: string }> = {
   text: { field: 'task', type: 'block' },
-  due: { field: 'due', type: 'date' },
-  priority: { field: 'priority', type: 'select' },
+  scope: { field: 'scope', type: 'mSelect' },
+  routine: { field: 'routine', type: 'select' },
+  source: { field: 'source', type: 'select' },
+  topic: { field: 'topic', type: 'select' },
   who: { field: 'who', type: 'select' },
+  client: { field: 'client', type: 'checkbox' },
+  priority: { field: 'priority', type: 'select' },
+  due: { field: 'due', type: 'date' },
   waitingOn: { field: 'waitingOn', type: 'text' },
   nextAction: { field: 'nextAction', type: 'text' },
   notes: { field: 'notes', type: 'text' },
+  order: { field: 'order', type: 'number' },
 };
+const SELECT_FIELDS: FieldKey[] = ['scope', 'routine', 'source', 'topic', 'who', 'priority'];
+/** API names whose select options may be extended on request (new_options). */
+const SELECT_API_FIELDS = ['scope', 'routine', 'source', 'topic', 'who', 'priority'];
+const SLUG_RE = /^[a-z0-9][a-z0-9-]{1,79}$/;
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const ROW_ID_RE = /^\d{14}-[a-z0-9]{7}$/;
@@ -95,6 +111,7 @@ export interface TaskRow {
   waitingOn: string;
   nextAction: string;
   notes: string;
+  added: string | null;
   lastTouched: string | null;
   order: number;
 }
@@ -215,34 +232,156 @@ export class TasksService {
       waitingOn: get('waitingOn') ?? '',
       nextAction: get('nextAction') ?? '',
       notes: get('notes') ?? '',
+      added: get('added') ?? null,
       lastTouched: get('lastTouched') ?? null,
       order: Number(get('order') ?? 0) || 0,
     };
   }
 
-  async list(): Promise<{ rows: TaskRow[]; options: Record<string, string[]>; editable: string[] }> {
+  /**
+   * Rows, optionally filtered. scope: a Scope value ("All" or omitted = every scope).
+   * status: "open" | "done" | "all" (default "all").
+   */
+  async list(
+    filter: { scope?: string; status?: string } = {}
+  ): Promise<{ rows: TaskRow[]; options: Record<string, string[]>; editable: string[] }> {
+    const status = filter.status || 'all';
+    if (!['open', 'done', 'all'].includes(status)) {
+      throw new HttpError(400, `status must be open, done or all, got ${JSON.stringify(status)}.`);
+    }
     const { columns, rows } = await this.renderAll();
     const fm = this.fieldMap(columns);
     const options: Record<string, string[]> = {};
-    for (const k of ['priority', 'who', 'scope', 'source', 'routine'] as FieldKey[]) {
+    for (const k of SELECT_FIELDS) {
       if (fm[k]) options[k] = (fm[k]!.options || []).map((o) => o.name);
     }
     const editable = Object.keys(EDITABLE).filter((k) => fm[EDITABLE[k].field]);
-    return { rows: rows.map((r) => this.toRow(r, fm)), options, editable };
+    let out = rows.map((r) => this.toRow(r, fm));
+    if (filter.scope && filter.scope !== 'All') out = out.filter((t) => t.scope.includes(filter.scope!));
+    if (status !== 'all') out = out.filter((t) => t.done === (status === 'done'));
+    return { rows: out, options, editable };
   }
 
   /**
-   * Apply one row's changes. `today` comes from the browser so "done today" is the user's day,
-   * not the server's.
+   * Turn one API field into a cell write. Select values must already be options unless the
+   * field is named in newOptions (protocol: a new repo scope, a new topic or source code).
+   */
+  private encode(
+    name: string,
+    raw: any,
+    fm: Partial<Record<FieldKey, Column>>,
+    put: (k: FieldKey, value: any, readAs: any) => void,
+    newOptions: string[]
+  ): void {
+    const spec = EDITABLE[name];
+    if (!spec) {
+      throw new HttpError(
+        400,
+        `Field "${name}" cannot be set here. Allowed: done, ${Object.keys(EDITABLE).join(', ')}.`
+      );
+    }
+    const col = fm[spec.field];
+    if (!col) throw new HttpError(400, `The database has no "${FIELD_NAMES[spec.field]}" field.`);
+    if (col.type !== spec.type) {
+      throw new HttpError(500, `Field "${col.name}" is type ${col.type}, expected ${spec.type}; refusing to write.`);
+    }
+    const allowed = (col.options || []).map((o) => o.name);
+    // 默认不允许写出新选项：内核会静默创建，拼写错误就会变成一个新的分类
+    const checkOption = (v: string) => {
+      if (v && !allowed.includes(v) && !newOptions.includes(name)) {
+        throw new HttpError(
+          400,
+          `"${v}" is not an option of ${col.name}. Options: ${allowed.join(', ')}. ` +
+            `If a new one is really meant, pass "new_options": ["${name}"].`
+        );
+      }
+    };
+    switch (spec.type) {
+      case 'date':
+        if (raw === null || raw === '') put(spec.field, null, null);
+        else if (typeof raw === 'string' && DATE_RE.test(raw)) put(spec.field, raw, raw);
+        else throw new HttpError(400, `"${name}" must be YYYY-MM-DD or null.`);
+        return;
+      case 'select': {
+        const v = raw === null ? '' : String(raw).trim();
+        checkOption(v);
+        put(spec.field, v || null, v);
+        return;
+      }
+      case 'mSelect': {
+        const arr = raw === null ? [] : Array.isArray(raw) ? raw.map((x) => String(x).trim()) : [String(raw).trim()];
+        if (arr.some((v) => !v)) throw new HttpError(400, `"${name}" has an empty value.`);
+        arr.forEach(checkOption);
+        put(spec.field, arr, arr);
+        return;
+      }
+      case 'checkbox':
+        if (typeof raw !== 'boolean') throw new HttpError(400, `"${name}" must be true or false.`);
+        put(spec.field, raw, raw);
+        return;
+      case 'number': {
+        if (raw === null || raw === '') {
+          put(spec.field, null, 0);
+          return;
+        }
+        const n = Number(raw);
+        if (!Number.isFinite(n)) throw new HttpError(400, `"${name}" must be a number.`);
+        put(spec.field, n, n);
+        return;
+      }
+      default: {
+        const v = raw === null ? '' : String(raw);
+        if (v.length > MAX_TEXT) throw new HttpError(400, `"${name}" is longer than ${MAX_TEXT} characters.`);
+        if (spec.field === 'task' && !v.trim()) throw new HttpError(400, 'The task text cannot be empty.');
+        put(spec.field, v, v);
+      }
+    }
+  }
+
+  /** Poll the row until every expected value shows, or fail loudly naming the differences. */
+  private async verify(
+    row: string,
+    fm: Partial<Record<FieldKey, Column>>,
+    expected: Partial<Record<FieldKey, any>>
+  ): Promise<TaskRow> {
+    // FieldKey 与 TaskRow 属性名只在主键上不同（task -> text）
+    const prop = (k: FieldKey) => (k === 'task' ? 'text' : k);
+    const same = (got: any, want: any) =>
+      want === null ? got === null || got === '' : JSON.stringify(got) === JSON.stringify(want);
+    const readRow = async () => {
+      const r = await this.renderAll();
+      const found = r.rows.find((x) => x.id === row);
+      if (!found) throw new Error('row not visible yet');
+      return this.toRow(found, fm);
+    };
+    const keys = Object.keys(expected) as FieldKey[];
+    const outcome = await readBackUntil(readRow, (t) => keys.every((k) => same((t as any)[prop(k)], expected[k])), {
+      attempts: 6,
+    });
+    if (!outcome.verified) {
+      const got = outcome.observed;
+      const diff = got
+        ? keys
+            .filter((k) => !same((got as any)[prop(k)], expected[k]))
+            .map((k) => `${FIELD_NAMES[k]}: wanted ${JSON.stringify(expected[k])}, SiYuan shows ${JSON.stringify((got as any)[prop(k)])}`)
+            .join('; ')
+        : 'the row could not be read back';
+      throw new HttpError(502, `SiYuan did not confirm the change (${diff}). Re-read before retrying.`);
+    }
+    return outcome.observed!;
+  }
+
+  /**
+   * Apply one row's changes. `today` (YYYY-MM-DD) should come from the caller, so "done today" is
+   * the user's day; without it the owner's fixed UTC-6 date is used.
    */
   async update(body: any): Promise<{ row: TaskRow; verified: true }> {
     if (!body || typeof body !== 'object') throw new HttpError(400, 'Expected a JSON object.');
-    const { row, changes, today } = body;
+    const { row, changes } = body;
+    const today = checkToday(body.today);
+    const newOptions = checkNewOptions(body.new_options);
     if (typeof row !== 'string' || !ROW_ID_RE.test(row)) {
       throw new HttpError(400, `Invalid row id ${JSON.stringify(row)}.`);
-    }
-    if (typeof today !== 'string' || !DATE_RE.test(today)) {
-      throw new HttpError(400, `"today" must be YYYY-MM-DD, got ${JSON.stringify(today)}.`);
     }
     if (!changes || typeof changes !== 'object' || !Object.keys(changes).length) {
       throw new HttpError(400, 'Nothing to change: "changes" is empty.');
@@ -254,7 +393,6 @@ export class TasksService {
       throw new HttpError(404, `Row ${row} is not in the task database.`);
     }
 
-    // expected: field key -> value as the page reads it back (for verification)
     const updates: Array<{ itemID: string; keyID: string; value: any }> = [];
     const expected: Partial<Record<FieldKey, any>> = {};
     const put = (k: FieldKey, value: any, readAs: any) => {
@@ -269,72 +407,102 @@ export class TasksService {
         put('doneAt', raw ? today : null, raw ? today : null);
         continue;
       }
-      const spec = EDITABLE[name];
-      if (!spec) {
-        throw new HttpError(
-          400,
-          `Field "${name}" cannot be changed here. Allowed: done, ${Object.keys(EDITABLE).join(', ')}.`
-        );
-      }
-      const col = fm[spec.field];
-      if (!col) throw new HttpError(400, `The database has no "${FIELD_NAMES[spec.field]}" field.`);
-      if (col.type !== spec.type) {
-        throw new HttpError(
-          500,
-          `Field "${col.name}" is type ${col.type}, expected ${spec.type}; refusing to write.`
-        );
-      }
-      if (spec.type === 'date') {
-        if (raw === null || raw === '') put(spec.field, null, null);
-        else if (typeof raw === 'string' && DATE_RE.test(raw)) put(spec.field, raw, raw);
-        else throw new HttpError(400, `"${name}" must be YYYY-MM-DD or empty.`);
-      } else if (spec.type === 'select') {
-        const v = raw === null ? '' : String(raw);
-        const allowed = (col.options || []).map((o) => o.name);
-        // 不允许写出新选项：内核会静默创建，页面上的拼写错误就会变成一个新的分类
-        if (v && !allowed.includes(v)) {
-          throw new HttpError(400, `"${v}" is not an option of ${col.name}. Options: ${allowed.join(', ')}.`);
-        }
-        put(spec.field, v || null, v);
-      } else {
-        const v = raw === null ? '' : String(raw);
-        if (v.length > MAX_TEXT) throw new HttpError(400, `"${name}" is longer than ${MAX_TEXT} characters.`);
-        if (spec.field === 'task' && !v.trim()) throw new HttpError(400, 'The task text cannot be empty.');
-        put(spec.field, v, v);
-      }
+      this.encode(name, raw, fm, put, newOptions);
     }
     put('lastTouched', today, today);
 
     await this.siyuan.av.batchSetCells(this.config.avID, updates);
-
-    const readRow = async () => {
-      const r = await this.renderAll();
-      const found = r.rows.find((x) => x.id === row);
-      if (!found) throw new Error('row vanished');
-      return this.toRow(found, fm);
-    };
-    // FieldKey 与 TaskRow 属性名只在主键上不同（task -> text）
-    const prop = (k: FieldKey) => (k === 'task' ? 'text' : k);
-    const matches = (t: TaskRow) =>
-      (Object.keys(expected) as FieldKey[]).every((k) => {
-        const got = (t as any)[prop(k)];
-        const want = expected[k];
-        if (want === null) return got === null || got === '';
-        return got === want;
-      });
-    const outcome = await readBackUntil(readRow, matches, { attempts: 6 });
-    if (!outcome.verified) {
-      const got = outcome.observed;
-      const diff = got
-        ? (Object.keys(expected) as FieldKey[])
-            .filter((k) => (got as any)[prop(k)] !== expected[k])
-            .map((k) => `${FIELD_NAMES[k]}: wanted ${JSON.stringify(expected[k])}, SiYuan shows ${JSON.stringify((got as any)[prop(k)])}`)
-            .join('; ')
-        : 'the row could not be read back';
-      throw new HttpError(502, `SiYuan did not confirm the change (${diff}). Reload to see the real state.`);
-    }
-    return { row: outcome.observed!, verified: true };
+    return { row: await this.verify(row, fm, expected), verified: true };
   }
+
+  /**
+   * Add one open task. Required: task, id, scope, source, topic, who. The ID must be unused
+   * (protocol: search before adding; if taken, add a date suffix). Never deletes anything.
+   */
+  async add(body: any): Promise<{ row: TaskRow; verified: true }> {
+    if (!body || typeof body !== 'object') throw new HttpError(400, 'Expected a JSON object.');
+    const today = checkToday(body.today);
+    const newOptions = checkNewOptions(body.new_options);
+    const required = ['task', 'id', 'scope', 'source', 'topic', 'who'];
+    const missing = required.filter((k) => body[k] === undefined || body[k] === null || body[k] === '' ||
+      (Array.isArray(body[k]) && !body[k].length));
+    if (missing.length) throw new HttpError(400, `Missing required field(s): ${missing.join(', ')}.`);
+    const slug = String(body.id).trim();
+    if (!SLUG_RE.test(slug)) {
+      throw new HttpError(400, `ID "${slug}" must be lowercase letters, digits and hyphens (e.g. nas-fix-backup).`);
+    }
+    const allowedKeys = new Set([...Object.keys(EDITABLE), 'task', 'id', 'today', 'new_options']);
+    const unknown = Object.keys(body).filter((k) => !allowedKeys.has(k));
+    if (unknown.length) {
+      throw new HttpError(400, `Unknown field(s) ${unknown.join(', ')}. Allowed: task, id, ${Object.keys(EDITABLE).filter((k) => k !== 'text').join(', ')}, today, new_options.`);
+    }
+
+    const { columns, rows } = await this.renderAll();
+    const fm = this.fieldMap(columns);
+    if (!fm.slug) throw new HttpError(500, 'The database has no "ID" field; cannot add safely.');
+    const existing = rows.map((r) => this.toRow(r, fm));
+    const clash = existing.find((t) => t.slug.toLowerCase() === slug.toLowerCase());
+    if (clash) {
+      throw new HttpError(
+        409,
+        `ID "${slug}" is already used by row ${clash.row} (${clash.done ? 'done' : 'open'}: "${clash.text.slice(0, 80)}"). ` +
+          `If this is new work, use "${slug}-${today.replace(/-/g, '')}"; if it is the same work, update that row instead.`
+      );
+    }
+
+    const values: Record<string, any> = {};
+    const expected: Partial<Record<FieldKey, any>> = {};
+    const put = (k: FieldKey, value: any, readAs: any) => {
+      values[fm[k]!.id] = value;
+      expected[k] = readAs;
+    };
+    this.encode('text', body.task, fm, put, newOptions);
+    put('slug', slug, slug);
+    for (const name of Object.keys(EDITABLE)) {
+      if (name !== 'text' && body[name] !== undefined) this.encode(name, body[name], fm, put, newOptions);
+    }
+    put('done', false, false);
+    if (fm.added) put('added', today, today);
+    put('lastTouched', today, today);
+
+    // 与思源自身的 ID 同形：当前时间 + 7 位随机；ID 唯一性已在上面按 slug 检查过
+    const itemID = newBlockId();
+    await this.siyuan.av.appendDetachedRowsWithValues(this.config.avID, [{ [ITEM_ID_KEY]: itemID, ...values }], {
+      onExistingItem: 'reject',
+    });
+    return { row: await this.verify(itemID, fm, expected), verified: true };
+  }
+}
+
+/** A SiYuan-shaped ID: local yyyyMMddHHmmss + '-' + 7 lowercase alphanumerics. */
+function newBlockId(): string {
+  const d = new Date();
+  const p = (n: number) => String(n).padStart(2, '0');
+  const ts = d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds());
+  const abc = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  const r = [...randomBytes(7)].map((b) => abc[b % abc.length]).join('');
+  return ts + '-' + r;
+}
+
+/** Today in the owner's zone: fixed UTC-6 all year (not Mountain Time). */
+function defaultToday(): string {
+  return new Date(Date.now() - 6 * 3600e3).toISOString().slice(0, 10);
+}
+
+function checkToday(v: any): string {
+  if (v === undefined || v === null) return defaultToday();
+  if (typeof v !== 'string' || !DATE_RE.test(v)) {
+    throw new HttpError(400, `"today" must be YYYY-MM-DD, got ${JSON.stringify(v)}.`);
+  }
+  return v;
+}
+
+function checkNewOptions(v: any): string[] {
+  if (v === undefined || v === null) return [];
+  if (!Array.isArray(v) || v.some((x) => !SELECT_API_FIELDS.includes(x))) {
+    throw new HttpError(400, `"new_options" must be a list drawn from ${SELECT_API_FIELDS.join(', ')}.`);
+  }
+  return v;
 }
 
 function send(res: ServerResponse, status: number, body: unknown, type = 'application/json'): void {
@@ -395,8 +563,11 @@ export async function handleTasksRequest(
     if (path === '/tasks' && req.method === 'GET') {
       send(res, 200, TASKS_PAGE_HTML, 'text/html');
     } else if (path === '/tasks/api/rows' && req.method === 'GET') {
-      send(res, 200, await service.list());
-    } else if (path === '/tasks/api/update' && req.method === 'POST') {
+      send(res, 200, await service.list({
+        scope: url.searchParams.get('scope') || undefined,
+        status: url.searchParams.get('status') || undefined,
+      }));
+    } else if ((path === '/tasks/api/update' || path === '/tasks/api/add') && req.method === 'POST') {
       if (req.headers['x-tasks-client'] !== '1') {
         throw new HttpError(403, 'Missing X-Tasks-Client header.');
       }
@@ -409,7 +580,8 @@ export async function handleTasksRequest(
       if (origin && !hosts.includes(new URL(origin).host)) {
         throw new HttpError(403, `Cross-origin write from ${origin} refused.`);
       }
-      send(res, 200, await service.update(await readBody(req)));
+      const body = await readBody(req);
+      send(res, 200, path === '/tasks/api/add' ? await service.add(body) : await service.update(body));
     } else {
       send(res, 404, { error: `No ${req.method} ${path}.` });
     }
