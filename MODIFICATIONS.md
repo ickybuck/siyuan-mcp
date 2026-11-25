@@ -34,7 +34,7 @@ up front that the kernel would otherwise accept and silently discard.
 
 | File | Nature of the change |
 | --- | --- |
-| `mcp-server/core/server.ts` | Dispatch through `safeExecute` so argument validation actually runs; usage-guide prompt and tool wiring |
+| `mcp-server/core/server.ts` | Dispatch through `safeExecute` so argument validation actually runs; usage-guide prompt and tool wiring; tool-name prefixing |
 | `mcp-server/core/types.ts` | `safeExecute` added to the `ToolHandler` contract |
 | `mcp-server/handlers/base.ts` | Rewritten validation: unknown arguments rejected by name, required arguments checked, `allowEmpty` for arguments where the empty string is a real instruction |
 | `mcp-server/handlers/index.ts` | Registration of all added handlers |
@@ -43,7 +43,8 @@ up front that the kernel would otherwise accept and silently discard.
 | `mcp-server/handlers/search.ts` | Ancestor-hit collapsing, document-scoped content search, result de-duplication |
 | `mcp-server/handlers/snapshot.ts` | Meaningful return values instead of `void` |
 | `mcp-server/handlers/tag.ts` | Measured tag replacement: counts, affected IDs, and an explicit failure when a tag matches nothing |
-| `mcp-server/bin/http.ts` | Session handling and transport fixes for the HTTP endpoint |
+| `mcp-server/bin/stdio.ts` | Tool-prefix and server-name options |
+| `mcp-server/bin/http.ts` | Session handling and transport fixes for the HTTP endpoint; tool-prefix and server-name options; optional `/tasks` route |
 | `src/index.ts` | Wiring for the added API modules; `overwriteFile` reimplemented as a verified whole-document replace |
 | `src/api/document.ts` | Parent-path and HTML-entity guards, verified create, polled rename read-back, corrected move-to-notebook-root path handling, paged document tree |
 | `src/api/block.ts` | Corrected insert anchors (`previousID`/`nextID` semantics), multi-block rejection on `update_block`, block counting helpers |
@@ -68,6 +69,9 @@ Upstream's committed build output under `mcp-server/**/*.js`, `*.d.ts` and `*.ma
 - `src/utils/entities.ts` — HTML-entity guards and IAL unescaping
 - `mcp-server/handlers/av.ts`, `block.ts`, `view.ts`, `history.ts`, `guide.ts` — the added tools
 - `mcp-server/core/usage-guide.ts` — the usage guide, served as both an MCP prompt and a tool
+- `mcp-server/core/tool-prefix.ts` — optional tool-name prefixing
+- `mcp-server/web/tasks.ts`, `tasks-page.ts`, `tasks-icons.ts` — the optional task-list web page and its API
+- `.eslintrc.cjs` — lint configuration
 - `Dockerfile`, `.dockerignore`, `.github/workflows/docker-publish.yml` — container build and publish
 - `CLAUDE.md`, `NOTES.md`, `.claude/settings.json` — collaboration setup
 - `scripts/scan-findings.mjs` — maintenance tooling
