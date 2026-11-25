@@ -35,6 +35,38 @@ Worth recording, in rough order of value to the next person:
 
 ---
 
+## 2026-11-25 — Task-list web page at /tasks
+
+**Who:** Eric (Claude Code, agent container on the NAS)
+**Branch / PR:** feat/tasks-page
+
+**Changed**
+- New `mcp-server/web/tasks.ts` (service and routes) and `mcp-server/web/tasks-page.ts` (the HTML).
+  `http.ts` routes `/tasks` before the CORS block, and only when `TASKS_AV_ID` and `TASKS_VIEW_ID` are set,
+  so another instance of the same image has no `/tasks` at all. It replaces the per-repo claude.ai artifact
+  copies of the owner's task list with one page whose scope is a URL parameter.
+- README section "Optional: task-list web page".
+
+**Learned**
+- Dates: the old artifact formatted Due with `new Date(ms)` in the browser. SiYuan stores date-only values
+  as midnight in the kernel/container zone, so a browser one hour east showed the previous day. The server
+  now turns dates into YYYY-MM-DD in its own zone and the page only compares strings.
+- Writing the primary-key (block) text of a detached row through batchSetAttributeViewBlockAttrs works and
+  reads back.
+- Tested against the live database from a second process inside the running container (dist copied to
+  /tmp, `node_modules` symlinked from /app, spare port), using one test row that is now marked done. The
+  page script was also run in jsdom against real row data.
+
+**Did not work**
+- The first readback compared field keys to row property names and reported 502 on Last touched and Task
+  even though the writes had landed. Fixed. A 502 from this page means "not confirmed", not "not written".
+
+**Left unfinished**
+- No "add task" form: sessions add rows through MCP, and the ID rules need judgement.
+- The page polls every 60 s; a tick made in SiYuan shows up on the next poll, not instantly.
+
+---
+
 ## 2026-11-07 — Usage guide: when and how to link
 
 **Who:** Eric (via Claude Code, wordpress repo session)
