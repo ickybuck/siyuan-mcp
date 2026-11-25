@@ -227,7 +227,7 @@ function stripBlockDom(html: string): string {
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
     .replace(/&amp;/g, '&')
-    .replace(/​/g, '')
+    .replace(/\u200b/g, '')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
